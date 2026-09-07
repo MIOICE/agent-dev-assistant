@@ -1,0 +1,28 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "java",
+            "name": "Agent - DeepSeek",
+            "request": "launch",
+            "mainClass": "com.gaozhaoyang.agent.AgentDevAssistantApplication",
+            "projectName": "agent-dev-assistant",
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.env.local",
+            "console": "integratedTerminal"
+        },
+        {
+            "type": "java",
+            "name": "Agent - Mock",
+            "request": "launch",
+            "mainClass": "com.gaozhaoyang.agent.AgentDevAssistantApplication",
+            "projectName": "agent-dev-assistant",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "APP_AI_MODE": "mock",
+                "WORKFLOW_REPOSITORY": "memory"
+            },
+            "console": "integratedTerminal"
+        }
+    ]
+}

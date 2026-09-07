@@ -1,0 +1,183 @@
+# 面向企业存量系统的需求开发 Agent
+
+一个可运行、可演示的 Java Agent 项目。系统把自然语言需求转换为结构化需求卡片，通过本地 RAG 检索企业规范，生成技术方案，并用人工审批完成安全闭环。
+
+## 已实现能力
+
+- 需求结构化：标题、背景、模块、验收标准、缺失信息、优先级、风险。
+- 多轮澄清：信息不足时暂停，补充后使用同一 `workflowId` 恢复。
+- RAG：业务文档解析、分块、本地 BGE 中文向量化、Top-K 检索、来源引用与离线评测。
+- Tool Calling：业务文档检索工具和只读数据库元数据目录工具。
+- 方案生成：后端改动、数据库影响、API、安全、性能、测试、回滚和待确认项。
+- Human-in-the-loop：方案审批、驳回意见回传、重新生成、最终完成。
+- 可靠性：失败状态持久化、日志记录、原工作流重试、参数校验、统一异常响应。
+- 持久化：内存 / MySQL 可切换，工作流列表、阶段筛选、版本号和事件时间线。
+- 可视化操作台：历史工作流、页面恢复、澄清、审批、驳回、重试、知识库评测。
+- 工程验证：JUnit 5、MockMvc、H2 MySQL 兼容测试和 Docker Compose。
+
+详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+
+## 目录重点
+
+```text
+src/main/java/com/gaozhaoyang/agent
+├─ requirement/   需求分析、结构化输出与确定性校验
+├─ knowledge/     文档分块、向量检索与评测
+├─ solution/      技术方案生成
+├─ tool/          Spring AI 工具调用
+├─ workflow/      状态机、审批闭环与持久化
+└─ common/        统一异常与运行状态
+```
+
+## 本地启动（推荐先用 Mock）
+
+Mock 模式不消耗大模型额度，但仍会执行完整工作流和本地 BGE 检索。
+
+```powershell
+$env:JAVA_HOME = "C:\Program Files\Eclipse Adoptium\jdk-21.0.5.11-hotspot"
+$env:Path = "$env:JAVA_HOME\bin;$env:Path"
+
+Set-Location "F:\agent-dev-assistant"
+mvn test
+mvn spring-boot:run
+```
+
+打开：`http://localhost:8080/`。根地址会进入新版工作台。
+
+## 使用真实 DeepSeek
+
+只在当前 PowerShell 会话设置密钥，不要写入配置文件：
+
+```powershell
+$env:DEEPSEEK_API_KEY = "替换成你自己的密钥"
+$env:APP_AI_MODE = "deepseek"
+
+Set-Location "F:\agent-dev-assistant"
+mvn spring-boot:run
+```
+
+页面右上角会显示“真实模型”或“Mock 演示”，可以直接确认当前运行方式。
+
+### 不使用 PowerShell：VS Code 一键启动
+
+1. 用 VS Code 打开整个 `F:\agent-dev-assistant` 文件夹。
+2. 打开项目根目录的 `.env.local`。
+3. 将 `DEEPSEEK_API_KEY=` 后面的占位内容替换成自己的密钥并保存。
+4. 打开左侧“运行和调试”，在顶部选择 `Agent - DeepSeek`。
+5. 点击绿色运行按钮或按 `F5`。
+
+`.vscode/launch.json` 已配置好主类、工作目录和环境变量文件；`.env.local` 已写入 `.gitignore`，不会被正常提交到 Git。需要切回演示模式时选择 `Agent - Mock` 即可。
+
+## MySQL 持久化启动
+
+先按 `scripts/create-workflow-database.sql` 创建数据库和应用账号，再执行：
+
+```powershell
+$env:WORKFLOW_REPOSITORY = "mysql"
+$env:WORKFLOW_MYSQL_USERNAME = "agent_app"
+$env:WORKFLOW_MYSQL_PASSWORD = "替换成你的本地数据库密码"
+$env:APP_AI_MODE = "mock"
+
+Set-Location "F:\agent-dev-assistant"
+mvn spring-boot:run
+```
+
+密码只保留在当前终端环境变量中，不要提交到 Git。
+
+## Docker Compose
+
+复制 `.env.example` 为 `.env`，填写数据库密码和本地 BGE 模型目录，然后运行：
+
+```powershell
+Set-Location "F:\agent-dev-assistant"
+Copy-Item .env.example .env
+docker compose up --build
+```
+
+## 完整接口测试命令
+
+### 创建工作流
+
+```powershell
+$body = @{
+    requirement = "紧急：订单列表增加全量导出，仅管理员可操作，导出当前筛选结果CSV，超过一万条使用异步任务"
+} | ConvertTo-Json
+
+$workflow = Invoke-RestMethod `
+    -Uri "http://localhost:8080/api/workflows" `
+    -Method Post `
+    -ContentType "application/json; charset=utf-8" `
+    -Body $body
+
+$workflow | ConvertTo-Json -Depth 12
+$workflowId = $workflow.workflowId
+```
+
+### 查询、补充、审批、驳回与重试
+
+```powershell
+# 查询详情
+Invoke-RestMethod -Uri "http://localhost:8080/api/workflows/$workflowId" -Method Get |
+    ConvertTo-Json -Depth 12
+
+# 信息不足时补充
+$clarificationBody = @{
+    clarification = "导出当前筛选订单，CSV格式，仅管理员可用，超过一万条采用异步任务"
+} | ConvertTo-Json
+Invoke-RestMethod `
+    -Uri "http://localhost:8080/api/workflows/$workflowId/clarifications" `
+    -Method Post -ContentType "application/json; charset=utf-8" `
+    -Body $clarificationBody | ConvertTo-Json -Depth 12
+
+# 驳回并重新生成
+$rejectionBody = @{ feedback = "补充异步任务进度查询和失败重试设计" } | ConvertTo-Json
+Invoke-RestMethod `
+    -Uri "http://localhost:8080/api/workflows/$workflowId/rejection" `
+    -Method Post -ContentType "application/json; charset=utf-8" `
+    -Body $rejectionBody | ConvertTo-Json -Depth 12
+
+# 审批通过
+$approvalBody = @{ comment = "安全、性能和回滚方案已确认" } | ConvertTo-Json
+Invoke-RestMethod `
+    -Uri "http://localhost:8080/api/workflows/$workflowId/approval" `
+    -Method Post -ContentType "application/json; charset=utf-8" `
+    -Body $approvalBody | ConvertTo-Json -Depth 12
+
+# 只有 FAILED 状态可以重试
+Invoke-RestMethod `
+    -Uri "http://localhost:8080/api/workflows/$workflowId/retry" `
+    -Method Post -ContentType "application/json; charset=utf-8" -Body "{}" |
+    ConvertTo-Json -Depth 12
+```
+
+### 工作流列表和系统状态
+
+```powershell
+Invoke-RestMethod -Uri "http://localhost:8080/api/workflows?page=0&size=20" -Method Get |
+    ConvertTo-Json -Depth 8
+
+Invoke-RestMethod -Uri "http://localhost:8080/api/workflows?stage=WAITING_APPROVAL&page=0&size=20" -Method Get |
+    ConvertTo-Json -Depth 8
+
+Invoke-RestMethod -Uri "http://localhost:8080/api/system/status" -Method Get |
+    Format-List
+```
+
+## 关键接口
+
+| 方法 | 地址 | 作用 |
+|---|---|---|
+| POST | `/api/workflows` | 创建并推进工作流 |
+| GET | `/api/workflows` | 分页查询工作流，可按阶段筛选 |
+| GET | `/api/workflows/{id}` | 查询完整快照和事件历史 |
+| POST | `/api/workflows/{id}/clarifications` | 补充需求并继续 |
+| POST | `/api/workflows/{id}/approval` | 审批通过 |
+| POST | `/api/workflows/{id}/rejection` | 驳回并携带意见重生成 |
+| POST | `/api/workflows/{id}/retry` | 重试失败工作流 |
+| GET | `/api/knowledge/search?query=...` | 向量检索 |
+| GET | `/api/knowledge/evaluation` | 运行检索评测 |
+| GET | `/api/system/status` | 查看模型与仓库运行模式 |
+
+## 简历表述边界
+
+可以如实写“Spring AI、DeepSeek、本地 BGE RAG、Tool Calling、工作流状态机、Human-in-the-loop、MySQL 快照持久化、失败恢复与自动化测试”。当前没有真正实现 Redis、自动修改代码、生产发布和真实业务库查询，不应写成已经完成。

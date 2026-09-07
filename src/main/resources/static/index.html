@@ -1,0 +1,957 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>需求开发 Agent 工作流调试台</title>
+    <meta http-equiv="refresh" content="0; url=/dashboard.html">
+    <style>
+        :root {
+            color-scheme: light;
+            --ink: #172033;
+            --muted: #697386;
+            --line: #dfe4ec;
+            --panel: rgba(255, 255, 255, 0.92);
+            --primary: #3157d5;
+            --primary-dark: #2446b5;
+            --soft: #eef2ff;
+            --success: #087a55;
+            --warning: #b25d09;
+            --danger: #c63838;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            color: var(--ink);
+            font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+            background:
+                radial-gradient(circle at 8% 0%, #dce7ff 0, transparent 36%),
+                radial-gradient(circle at 100% 18%, #e1f7ef 0, transparent 31%),
+                #f5f7fb;
+        }
+
+        .shell {
+            width: min(1120px, calc(100% - 32px));
+            margin: 0 auto;
+            padding: 48px 0 72px;
+        }
+
+        .eyebrow {
+            margin: 0 0 8px;
+            color: var(--primary);
+            font-size: 13px;
+            font-weight: 800;
+            letter-spacing: .12em;
+            text-transform: uppercase;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: clamp(30px, 5vw, 48px);
+            line-height: 1.14;
+            letter-spacing: -.04em;
+        }
+
+        .intro {
+            max-width: 680px;
+            margin: 14px 0 28px;
+            color: var(--muted);
+            font-size: 16px;
+            line-height: 1.7;
+        }
+
+        .panel {
+            border: 1px solid rgba(216, 222, 233, .9);
+            border-radius: 22px;
+            background: var(--panel);
+            box-shadow: 0 22px 60px rgba(46, 62, 96, .1);
+            backdrop-filter: blur(14px);
+        }
+
+        .input-panel { padding: 24px; }
+
+        label {
+            display: block;
+            margin-bottom: 10px;
+            font-size: 15px;
+            font-weight: 800;
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 142px;
+            resize: vertical;
+            padding: 16px 18px;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            outline: none;
+            color: var(--ink);
+            background: #fff;
+            font: inherit;
+            font-size: 16px;
+            line-height: 1.65;
+            transition: border-color .18s, box-shadow .18s;
+        }
+
+        textarea:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 4px rgba(49, 87, 213, .11);
+        }
+
+        .samples {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .sample {
+            padding: 7px 11px;
+            border: 1px solid #dbe2f0;
+            border-radius: 999px;
+            color: #4d5b73;
+            background: #f8faff;
+            font-size: 13px;
+            cursor: pointer;
+        }
+
+        .sample:hover { border-color: #9daedb; color: var(--primary); }
+
+        .actions {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            margin-top: 20px;
+        }
+
+        .hint { color: var(--muted); font-size: 13px; }
+
+        .primary-button {
+            min-width: 132px;
+            padding: 12px 20px;
+            border: 0;
+            border-radius: 12px;
+            color: #fff;
+            background: var(--primary);
+            font: inherit;
+            font-weight: 800;
+            cursor: pointer;
+            box-shadow: 0 10px 24px rgba(49, 87, 213, .22);
+        }
+
+        .primary-button:hover { background: var(--primary-dark); }
+        .primary-button:disabled { opacity: .65; cursor: wait; }
+
+        .secondary-button {
+            padding: 9px 14px;
+            border: 1px solid #cbd5ea;
+            border-radius: 10px;
+            color: var(--primary);
+            background: #f8faff;
+            font: inherit;
+            font-size: 13px;
+            font-weight: 800;
+            cursor: pointer;
+        }
+
+        .secondary-button:hover { border-color: var(--primary); }
+
+        .message {
+            margin-top: 18px;
+            padding: 14px 16px;
+            border-radius: 12px;
+            line-height: 1.6;
+        }
+
+        .message.error { color: #932d2d; background: #fff0f0; border: 1px solid #f3c6c6; }
+        .hidden { display: none !important; }
+
+        .clarification-panel {
+            margin: 20px 24px 0;
+            padding: 18px;
+            border: 1px solid #f0cf98;
+            border-radius: 14px;
+            background: #fffaf0;
+        }
+        .clarification-panel h3 { margin: 0 0 6px; font-size: 16px; }
+        .clarification-panel p { margin: 0 0 12px; }
+        .clarification-panel textarea { min-height: 92px; }
+        .clarification-panel .actions { margin-top: 12px; justify-content: flex-end; }
+
+        .result { margin-top: 24px; overflow: hidden; }
+
+        .result-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 18px;
+            padding: 24px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .result-title { margin: 0 0 9px; font-size: 24px; }
+        .background { margin: 0; color: var(--muted); line-height: 1.65; }
+
+        .workflow-meta {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px 12px;
+            margin-top: 12px;
+        }
+
+        .workflow-id {
+            color: var(--muted);
+            font: 12px/1.5 "Cascadia Code", Consolas, monospace;
+            overflow-wrap: anywhere;
+        }
+
+        .badges { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            white-space: nowrap;
+            padding: 7px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 900;
+        }
+
+        .priority-P0 { color: #a52828; background: #ffe3e3; }
+        .priority-P1 { color: #995306; background: #fff0d5; }
+        .priority-P2 { color: #3157a4; background: #e7efff; }
+        .ready { color: var(--success); background: #def7ec; }
+        .not-ready { color: var(--warning); background: #fff1da; }
+        .workflow-stage { color: #5b3a9b; background: #eee7ff; }
+
+        .result-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0;
+        }
+
+        .section {
+            min-height: 175px;
+            padding: 22px 24px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .section:nth-child(odd) { border-right: 1px solid var(--line); }
+        .section h3 { margin: 0 0 12px; font-size: 15px; }
+        .references-section { grid-column: 1 / -1; min-height: auto; border-right: 0 !important; }
+        .solution-section { grid-column: 1 / -1; border-right: 0 !important; }
+        .solution-summary {
+            margin: 0 0 18px;
+            padding: 14px 16px;
+            border-radius: 12px;
+            color: #34415a;
+            background: var(--soft);
+            line-height: 1.7;
+        }
+        .solution-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+        }
+        .solution-item {
+            padding: 15px 16px;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            background: #fff;
+        }
+        .solution-item h4 { margin: 0 0 10px; font-size: 14px; }
+
+        ul { margin: 0; padding-left: 20px; color: #455167; }
+        li { margin: 8px 0; line-height: 1.55; }
+        .empty { margin: 0; color: #8a94a6; font-size: 14px; }
+
+        details { padding: 18px 24px 22px; }
+        summary { color: var(--primary); font-weight: 800; cursor: pointer; }
+        pre {
+            margin: 14px 0 0;
+            padding: 16px;
+            overflow: auto;
+            border-radius: 12px;
+            color: #d9e2f2;
+            background: #172033;
+            font: 13px/1.65 "Cascadia Code", Consolas, monospace;
+        }
+
+        .knowledge-panel { margin-top: 24px; padding: 24px; }
+        .knowledge-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 18px;
+        }
+        .knowledge-header h2 { margin: 0 0 6px; font-size: 20px; }
+        .knowledge-summary { margin: 0; color: var(--muted); font-size: 14px; }
+        .chunk-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+        }
+        .knowledge-search {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 18px;
+        }
+        .knowledge-search input {
+            flex: 1;
+            min-width: 0;
+            padding: 11px 13px;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            outline: none;
+            color: var(--ink);
+            background: #fff;
+            font: inherit;
+        }
+        .knowledge-search input:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(49, 87, 213, .1);
+        }
+        .chunk-card {
+            padding: 16px;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            background: #fff;
+        }
+        .metric-value {
+            margin: 6px 0 0;
+            color: var(--primary);
+            font-size: 28px;
+            font-weight: 800;
+        }
+        .evaluation-pass { color: #138a55; font-weight: 700; }
+        .evaluation-fail { color: #c23a3a; font-weight: 700; }
+        .chunk-meta { margin: 0 0 10px; color: var(--primary); font-size: 12px; font-weight: 800; }
+        .chunk-title { margin: 0 0 9px; font-size: 15px; }
+        .chunk-keywords { margin: 0 0 10px; color: var(--muted); font-size: 12px; }
+        .chunk-content { margin: 0; color: #455167; font-size: 13px; line-height: 1.7; white-space: pre-wrap; }
+
+        @media (max-width: 720px) {
+            .shell { width: min(100% - 20px, 1120px); padding-top: 28px; }
+            .input-panel, .result-header, .section { padding: 18px; }
+            .actions, .result-header { align-items: stretch; flex-direction: column; }
+            .primary-button { width: 100%; }
+            .badges { justify-content: flex-start; }
+            .result-grid { grid-template-columns: 1fr; }
+            .solution-grid { grid-template-columns: 1fr; }
+            .chunk-grid { grid-template-columns: 1fr; }
+            .section:nth-child(odd) { border-right: 0; }
+        }
+    </style>
+</head>
+<body>
+<main class="shell">
+    <p class="eyebrow">Agent Dev Assistant</p>
+    <h1>需求开发 Agent 工作流调试台</h1>
+    <p class="intro">输入一段业务需求，启动 Agent 工作流，并查看当前阶段及生成的结构化需求卡片。</p>
+
+    <section class="panel input-panel">
+        <label for="requirement">业务需求</label>
+        <textarea id="requirement" maxlength="4000" placeholder="例如：紧急：订单列表增加全量导出功能"></textarea>
+        <div class="samples" aria-label="示例需求">
+            <button class="sample" type="button">增加导出功能</button>
+            <button class="sample" type="button">紧急：订单列表增加全量导出功能</button>
+            <button class="sample" type="button">本周批量修改订单状态并删除错误订单</button>
+        </div>
+        <div class="actions">
+            <div>
+                <span class="hint">按 Ctrl + Enter 也可以提交</span>
+                <button id="knowledgeButton" class="secondary-button" type="button">查看知识库分块</button>
+            </div>
+            <button id="analyzeButton" class="primary-button" type="button">启动工作流</button>
+        </div>
+        <div id="errorMessage" class="message error hidden" role="alert"></div>
+    </section>
+
+    <section id="knowledgePanel" class="panel knowledge-panel hidden">
+        <header class="knowledge-header">
+            <div>
+                <h2>知识库分块</h2>
+                <p id="knowledgeSummary" class="knowledge-summary"></p>
+            </div>
+            <button id="closeKnowledgeButton" class="secondary-button" type="button">收起</button>
+        </header>
+        <div class="knowledge-search">
+            <input id="knowledgeQuery" type="text" placeholder="例如：订单数据下载和权限控制" maxlength="200">
+            <button id="searchKnowledgeButton" class="secondary-button" type="button">向量检索</button>
+            <button id="evaluateKnowledgeButton" class="secondary-button" type="button">运行检索评测</button>
+            <button id="compareThresholdsButton" class="secondary-button" type="button">对比检索阈值</button>
+        </div>
+        <div id="chunkGrid" class="chunk-grid"></div>
+    </section>
+
+    <section id="result" class="panel result hidden" aria-live="polite">
+        <header class="result-header">
+            <div>
+                <h2 id="resultTitle" class="result-title"></h2>
+                <p id="resultBackground" class="background"></p>
+                <div class="workflow-meta">
+                    <span id="workflowStageBadge" class="badge workflow-stage"></span>
+                    <span id="workflowId" class="workflow-id"></span>
+                </div>
+            </div>
+            <div class="badges">
+                <span id="priorityBadge" class="badge"></span>
+                <span id="readyBadge" class="badge"></span>
+            </div>
+        </header>
+
+        <div id="clarificationPanel" class="clarification-panel hidden">
+            <h3>补充需求信息</h3>
+            <p class="hint">系统会保留当前工作流 ID，并结合原始需求重新分析。</p>
+            <label for="clarificationInput">本次补充内容</label>
+            <textarea id="clarificationInput" maxlength="4000"
+                      placeholder="例如：导出订单列表当前筛选结果，文件格式为CSV，仅管理员可操作"></textarea>
+            <div class="actions">
+                <button id="clarificationButton" class="primary-button" type="button">提交补充信息</button>
+            </div>
+        </div>
+
+        <div class="result-grid">
+            <article class="section">
+                <h3>涉及模块</h3>
+                <div id="modules"></div>
+            </article>
+            <article class="section">
+                <h3>验收标准</h3>
+                <div id="criteria"></div>
+            </article>
+            <article class="section">
+                <h3>缺失信息</h3>
+                <div id="missing"></div>
+            </article>
+            <article class="section">
+                <h3>风险提示</h3>
+                <div id="risks"></div>
+            </article>
+            <article class="section references-section">
+                <h3>参考资料</h3>
+                <div id="references"></div>
+            </article>
+            <article id="solutionSection" class="section solution-section hidden">
+                <h3>技术方案</h3>
+                <p id="solutionSummary" class="solution-summary"></p>
+                <div class="solution-grid">
+                    <div class="solution-item"><h4>后端改动</h4><div id="solutionBackend"></div></div>
+                    <div class="solution-item"><h4>数据库影响</h4><div id="solutionDatabase"></div></div>
+                    <div class="solution-item"><h4>接口设计</h4><div id="solutionApi"></div></div>
+                    <div class="solution-item"><h4>安全控制</h4><div id="solutionSecurity"></div></div>
+                    <div class="solution-item"><h4>性能策略</h4><div id="solutionPerformance"></div></div>
+                    <div class="solution-item"><h4>测试计划</h4><div id="solutionTests"></div></div>
+                    <div class="solution-item"><h4>回滚方案</h4><div id="solutionRollback"></div></div>
+                    <div class="solution-item"><h4>待确认假设</h4><div id="solutionAssumptions"></div></div>
+                </div>
+            </article>
+        </div>
+
+        <details>
+            <summary>查看接口返回的原始 JSON</summary>
+            <pre id="rawJson"></pre>
+        </details>
+    </section>
+</main>
+
+<script>
+    const input = document.querySelector('#requirement');
+    const button = document.querySelector('#analyzeButton');
+    const result = document.querySelector('#result');
+    const errorMessage = document.querySelector('#errorMessage');
+    const knowledgeButton = document.querySelector('#knowledgeButton');
+    const knowledgePanel = document.querySelector('#knowledgePanel');
+    const clarificationPanel = document.querySelector('#clarificationPanel');
+    const clarificationInput = document.querySelector('#clarificationInput');
+    const clarificationButton = document.querySelector('#clarificationButton');
+    let currentWorkflowId = null;
+
+    document.querySelectorAll('.sample').forEach(sample => {
+        sample.addEventListener('click', () => {
+            input.value = sample.textContent.trim();
+            input.focus();
+        });
+    });
+
+    input.addEventListener('keydown', event => {
+        if (event.ctrlKey && event.key === 'Enter') {
+            analyze();
+        }
+    });
+
+    button.addEventListener('click', analyze);
+    clarificationButton.addEventListener('click', submitClarification);
+    knowledgeButton.addEventListener('click', loadKnowledgeChunks);
+    document.querySelector('#searchKnowledgeButton').addEventListener('click', searchKnowledge);
+    document.querySelector('#evaluateKnowledgeButton').addEventListener('click', evaluateKnowledge);
+    document.querySelector('#compareThresholdsButton').addEventListener('click', compareThresholds);
+    document.querySelector('#knowledgeQuery').addEventListener('keydown', event => {
+        if (event.key === 'Enter') searchKnowledge();
+    });
+    document.querySelector('#closeKnowledgeButton').addEventListener('click', () => {
+        knowledgePanel.classList.add('hidden');
+    });
+
+    async function loadKnowledgeChunks() {
+        hideError();
+        knowledgeButton.disabled = true;
+        knowledgeButton.textContent = '正在加载…';
+
+        try {
+            const response = await fetch('/api/knowledge/chunks');
+            if (!response.ok) {
+                throw new Error(`知识库加载失败，HTTP状态码：${response.status}`);
+            }
+
+            const chunks = await response.json();
+            renderKnowledgeChunks(chunks);
+            knowledgePanel.classList.remove('hidden');
+            knowledgePanel.scrollIntoView({ behavior: 'smooth' });
+        } catch (error) {
+            showError(error.message === 'Failed to fetch'
+                ? '无法连接到服务，请确认Spring Boot已经启动。'
+                : error.message);
+        } finally {
+            knowledgeButton.disabled = false;
+            knowledgeButton.textContent = '查看知识库分块';
+        }
+    }
+
+    function renderKnowledgeChunks(chunks) {
+        const sourceCount = new Set(chunks.map(chunk => chunk.sourceId)).size;
+        document.querySelector('#knowledgeSummary').textContent =
+            `${sourceCount} 份源文档，共生成 ${chunks.length} 个 Chunk`;
+        renderChunkCards(chunks, false);
+    }
+
+    async function searchKnowledge() {
+        const queryInput = document.querySelector('#knowledgeQuery');
+        const searchButton = document.querySelector('#searchKnowledgeButton');
+        const query = queryInput.value.trim();
+
+        if (!query) {
+            queryInput.focus();
+            return;
+        }
+
+        searchButton.disabled = true;
+        searchButton.textContent = '检索中…';
+
+        try {
+            const response = await fetch(`/api/knowledge/search?query=${encodeURIComponent(query)}`);
+            if (!response.ok) {
+                throw new Error(`向量检索失败，HTTP状态码：${response.status}`);
+            }
+
+            const results = await response.json();
+            document.querySelector('#knowledgeSummary').textContent = results.length === 0
+                ? `“${query}”没有达到相似度阈值的结果`
+                : `“${query}”召回 ${results.length} 个 Chunk，已按相似度降序排列`;
+            renderChunkCards(results, true);
+        } catch (error) {
+            showError(error.message);
+        } finally {
+            searchButton.disabled = false;
+            searchButton.textContent = '向量检索';
+        }
+    }
+
+    async function evaluateKnowledge() {
+        const evaluateButton = document.querySelector('#evaluateKnowledgeButton');
+        evaluateButton.disabled = true;
+        evaluateButton.textContent = '评测中…';
+        hideError();
+
+        try {
+            const response = await fetch('/api/knowledge/evaluation');
+            if (!response.ok) {
+                throw new Error(`检索评测失败，HTTP状态码：${response.status}`);
+            }
+
+            const report = await response.json();
+            renderEvaluation(report);
+            knowledgePanel.classList.remove('hidden');
+            knowledgePanel.scrollIntoView({ behavior: 'smooth' });
+        } catch (error) {
+            showError(error.message);
+        } finally {
+            evaluateButton.disabled = false;
+            evaluateButton.textContent = '运行检索评测';
+        }
+    }
+
+    function renderEvaluation(report) {
+        document.querySelector('#knowledgeSummary').textContent =
+            `${report.totalCases} 条评测问题：${report.positiveCases} 条相关问题，` +
+            `${report.negativeCases} 条无关问题，Top-K = ${report.topK}`;
+
+        const chunkGrid = document.querySelector('#chunkGrid');
+        chunkGrid.replaceChildren();
+
+        const metrics = [
+            ['Hit@K', report.hitAtK, '相关问题至少命中一个正确文档的比例'],
+            ['Precision@K', report.precisionAtK, '前 K 个位置中正确文档所占比例'],
+            ['MRR', report.meanReciprocalRank, '第一个正确文档排名的综合得分'],
+            ['无关问题拒绝率', report.irrelevantRejectionRate, '无关问题未召回任何文档的比例']
+        ];
+
+        metrics.forEach(([name, value, description]) => {
+            const card = document.createElement('article');
+            card.className = 'chunk-card';
+
+            const title = document.createElement('h3');
+            title.className = 'chunk-title';
+            title.textContent = name;
+
+            const metricValue = document.createElement('p');
+            metricValue.className = 'metric-value';
+            metricValue.textContent = `${(value * 100).toFixed(1)}%`;
+
+            const detail = document.createElement('p');
+            detail.className = 'chunk-content';
+            detail.textContent = description;
+
+            card.append(title, metricValue, detail);
+            chunkGrid.append(card);
+        });
+
+        report.cases.forEach(item => {
+            const card = document.createElement('article');
+            card.className = 'chunk-card';
+
+            const status = document.createElement('p');
+            status.className = item.passed
+                ? 'evaluation-pass'
+                : 'evaluation-fail';
+            status.textContent = item.passed ? '通过' : '未通过';
+
+            const title = document.createElement('h3');
+            title.className = 'chunk-title';
+            title.textContent = `${item.id} · ${item.query}`;
+
+            const expected = document.createElement('p');
+            expected.className = 'chunk-content';
+            expected.textContent = item.expectedSourceIds.length === 0
+                ? '预期：无关问题，不应返回文档'
+                : `预期来源：${item.expectedSourceIds.join('、')}`;
+
+            const actual = document.createElement('p');
+            actual.className = 'chunk-content';
+            actual.textContent = item.retrievedSourceIds.length === 0
+                ? '实际来源：无'
+                : `实际来源：${item.retrievedSourceIds.join('、')}`;
+
+            card.append(status, title, expected, actual);
+            chunkGrid.append(card);
+        });
+    }
+
+    async function compareThresholds() {
+        const compareButton = document.querySelector('#compareThresholdsButton');
+        compareButton.disabled = true;
+        compareButton.textContent = '对比中…';
+        hideError();
+
+        try {
+            const response = await fetch('/api/knowledge/evaluation/thresholds');
+            if (!response.ok) {
+                throw new Error(`阈值对比失败，HTTP状态码：${response.status}`);
+            }
+
+            const reports = await response.json();
+            renderThresholdComparison(reports);
+            knowledgePanel.classList.remove('hidden');
+            knowledgePanel.scrollIntoView({ behavior: 'smooth' });
+        } catch (error) {
+            showError(error.message);
+        } finally {
+            compareButton.disabled = false;
+            compareButton.textContent = '对比检索阈值';
+        }
+    }
+
+    function renderThresholdComparison(reports) {
+        document.querySelector('#knowledgeSummary').textContent =
+            `使用同一评测集对比 ${reports.length} 组相似度阈值`;
+
+        const chunkGrid = document.querySelector('#chunkGrid');
+        chunkGrid.replaceChildren();
+
+        reports.forEach(report => {
+            const card = document.createElement('article');
+            card.className = 'chunk-card';
+
+            const title = document.createElement('h3');
+            title.className = 'chunk-title';
+            title.textContent = `相似度阈值 ${report.similarityThreshold.toFixed(2)}`;
+
+            const details = document.createElement('ul');
+            details.append(
+                metricItem(`Hit@${report.topK}`, report.hitAtK),
+                metricItem(`Precision@${report.topK}`, report.precisionAtK),
+                metricItem('MRR', report.meanReciprocalRank),
+                metricItem('无关问题拒绝率', report.irrelevantRejectionRate)
+            );
+
+            const passedCases = report.cases.filter(item => item.passed).length;
+            const summary = document.createElement('p');
+            summary.className = 'chunk-content';
+            summary.textContent = `逐题通过 ${passedCases}/${report.totalCases}`;
+
+            card.append(title, details, summary);
+            chunkGrid.append(card);
+        });
+    }
+
+    function metricItem(name, value) {
+        const item = document.createElement('li');
+        item.textContent = `${name}：${(value * 100).toFixed(1)}%`;
+        return item;
+    }
+
+    function renderChunkCards(chunks, showScore) {
+        const chunkGrid = document.querySelector('#chunkGrid');
+        chunkGrid.replaceChildren();
+
+        chunks.forEach(chunk => {
+            const card = document.createElement('article');
+            card.className = 'chunk-card';
+
+            const meta = document.createElement('p');
+            meta.className = 'chunk-meta';
+            const scoreText = showScore ? ` · 相似度 ${chunk.score.toFixed(3)}` : '';
+            meta.textContent = `${chunk.id} · 第 ${chunk.chunkIndex} 块${scoreText}`;
+
+            const title = document.createElement('h3');
+            title.className = 'chunk-title';
+            title.textContent = chunk.title;
+
+            const keywords = document.createElement('p');
+            keywords.className = 'chunk-keywords';
+            keywords.textContent = `关键词：${chunk.keywords.join('、')}`;
+
+            const content = document.createElement('p');
+            content.className = 'chunk-content';
+            content.textContent = chunk.content;
+
+            card.append(meta, title, keywords, content);
+            chunkGrid.append(card);
+        });
+    }
+
+    async function analyze() {
+        const content = input.value.trim();
+        hideError();
+
+        if (!content) {
+            showError('请先输入一段业务需求。');
+            input.focus();
+            return;
+        }
+
+        setLoading(true);
+
+        try {
+            const response = await fetch('/api/workflows', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ requirement: content })
+            });
+
+            const data = await response.json().catch(() => null);
+
+            if (!response.ok) {
+                throw new Error(extractErrorMessage(data, response.status));
+            }
+
+            if (!data?.requirementCard) {
+                throw new Error('工作流尚未生成需求卡片，请查看接口返回结果。');
+            }
+
+            renderResult(data.requirementCard, data);
+        } catch (error) {
+            result.classList.add('hidden');
+            showError(error.message === 'Failed to fetch'
+                ? '无法连接到服务，请确认Spring Boot已经启动。'
+                : error.message);
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    async function submitClarification() {
+        const clarification = clarificationInput.value.trim();
+        hideError();
+
+        if (!currentWorkflowId) {
+            showError('当前页面没有可继续的工作流，请重新提交需求。');
+            return;
+        }
+        if (!clarification) {
+            showError('请先填写补充需求信息。');
+            clarificationInput.focus();
+            return;
+        }
+
+        setClarificationLoading(true);
+        try {
+            const response = await fetch(
+                `/api/workflows/${encodeURIComponent(currentWorkflowId)}/clarifications`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ clarification })
+                }
+            );
+            const data = await response.json().catch(() => null);
+            if (!response.ok) {
+                throw new Error(extractErrorMessage(data, response.status));
+            }
+
+            clarificationInput.value = '';
+            renderResult(data.requirementCard, data);
+        } catch (error) {
+            showError(error.message === 'Failed to fetch'
+                ? '无法连接到服务，请确认Spring Boot已经启动。'
+                : error.message);
+        } finally {
+            setClarificationLoading(false);
+        }
+    }
+
+    function renderResult(card, workflow) {
+        currentWorkflowId = workflow.workflowId || null;
+        document.querySelector('#resultTitle').textContent = card.title || '未生成标题';
+        document.querySelector('#resultBackground').textContent = card.background || '暂无背景描述';
+
+        document.querySelector('#workflowStageBadge').textContent =
+            `当前阶段 ${formatWorkflowStage(workflow.stage)}`;
+        document.querySelector('#workflowId').textContent =
+            workflow.workflowId ? `工作流 ID：${workflow.workflowId}` : '工作流 ID：未返回';
+
+        const priority = card.priority || '未知';
+        const priorityBadge = document.querySelector('#priorityBadge');
+        priorityBadge.textContent = `优先级 ${priority}`;
+        priorityBadge.className = `badge priority-${priority}`;
+
+        const readyBadge = document.querySelector('#readyBadge');
+        readyBadge.textContent = card.readyForPlanning ? '可以进入方案阶段' : '需要补充信息';
+        readyBadge.className = `badge ${card.readyForPlanning ? 'ready' : 'not-ready'}`;
+
+        renderList('#modules', card.affectedModules, '暂未识别到涉及模块');
+        renderList('#criteria', card.acceptanceCriteria, '暂未生成验收标准');
+        renderList('#missing', card.missingInformation, '没有需要补充的信息');
+        renderList('#risks', card.risks, '暂未识别到明显风险');
+        const retrievedReferences = Array.isArray(workflow.knowledgeResults)
+            ? workflow.knowledgeResults.map(item => {
+                const score = Number(item.score || 0);
+                return `${item.title || item.sourceId}（${item.sourceId} · 相似度 ${(score * 100).toFixed(1)}%）`;
+            })
+            : [];
+        const references = [...new Set([
+            ...(Array.isArray(card.references) ? card.references : []),
+            ...retrievedReferences
+        ])];
+        renderList('#references', references, '本次工作流未检索到业务资料');
+        renderTechnicalSolution(workflow.technicalSolution);
+        clarificationPanel.classList.toggle(
+            'hidden',
+            workflow.stage !== 'WAITING_CLARIFICATION'
+        );
+        document.querySelector('#rawJson').textContent = JSON.stringify(workflow, null, 2);
+
+        result.classList.remove('hidden');
+        result.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function renderTechnicalSolution(solution) {
+        const section = document.querySelector('#solutionSection');
+        if (!solution) {
+            section.classList.add('hidden');
+            return;
+        }
+
+        document.querySelector('#solutionSummary').textContent =
+            solution.summary || '暂无方案摘要';
+        renderList('#solutionBackend', solution.backendChanges, '暂无后端改动');
+        renderList('#solutionDatabase', solution.databaseChanges, '暂无数据库改动');
+        renderList('#solutionApi', solution.apiDesign, '暂无接口设计');
+        renderList('#solutionSecurity', solution.securityControls, '暂无安全控制');
+        renderList('#solutionPerformance', solution.performanceStrategy, '暂无性能策略');
+        renderList('#solutionTests', solution.testPlan, '暂无测试计划');
+        renderList('#solutionRollback', solution.rollbackPlan, '暂无回滚方案');
+        renderList('#solutionAssumptions', solution.assumptions, '没有待确认假设');
+        section.classList.remove('hidden');
+    }
+
+    function formatWorkflowStage(stage) {
+        const labels = {
+            REQUIREMENT_ANALYSIS: '需求分析',
+            WAITING_CLARIFICATION: '等待补充需求',
+            KNOWLEDGE_RETRIEVAL: '知识检索',
+            SOLUTION_GENERATION: '方案生成',
+            WAITING_APPROVAL: '等待人工审批',
+            COMPLETED: '已完成'
+        };
+        return labels[stage] || stage || '未知';
+    }
+
+    function renderList(selector, values, emptyText) {
+        const container = document.querySelector(selector);
+        container.replaceChildren();
+
+        if (!Array.isArray(values) || values.length === 0) {
+            const empty = document.createElement('p');
+            empty.className = 'empty';
+            empty.textContent = emptyText;
+            container.append(empty);
+            return;
+        }
+
+        const list = document.createElement('ul');
+        values.forEach(value => {
+            const item = document.createElement('li');
+            item.textContent = value;
+            list.append(item);
+        });
+        container.append(list);
+    }
+
+    function extractErrorMessage(data, status) {
+        if (data?.message) return data.message;
+        if (data?.detail) return data.detail;
+        if (data?.errors && typeof data.errors === 'object') {
+            return Object.values(data.errors).join('；');
+        }
+        return `请求失败，HTTP状态码：${status}`;
+    }
+
+    function setLoading(loading) {
+        button.disabled = loading;
+        button.textContent = loading ? '正在启动…' : '启动工作流';
+    }
+
+    function setClarificationLoading(loading) {
+        clarificationButton.disabled = loading;
+        clarificationButton.textContent = loading ? '正在重新分析…' : '提交补充信息';
+    }
+
+    function showError(message) {
+        errorMessage.textContent = message;
+        errorMessage.classList.remove('hidden');
+    }
+
+    function hideError() {
+        errorMessage.classList.add('hidden');
+        errorMessage.textContent = '';
+    }
+</script>
+</body>
+</html>

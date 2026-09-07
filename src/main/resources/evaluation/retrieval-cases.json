@@ -1,0 +1,42 @@
+[
+  {
+    "id": "EVAL-001",
+    "query": "订单全量导出",
+    "relevantSourceIds": ["DOC-EXPORT-001"]
+  },
+  {
+    "id": "EVAL-002",
+    "query": "导出超过一万条数据如何避免请求超时",
+    "relevantSourceIds": ["DOC-EXPORT-001"]
+  },
+  {
+    "id": "EVAL-003",
+    "query": "订单状态怎么批量修改",
+    "relevantSourceIds": ["DOC-ORDER-001"]
+  },
+  {
+    "id": "EVAL-004",
+    "query": "客户订单导出前要检查哪些权限",
+    "relevantSourceIds": ["DOC-AUTH-001", "DOC-EXPORT-001"]
+  },
+  {
+    "id": "EVAL-005",
+    "query": "删除错误订单要记录操作人和时间",
+    "relevantSourceIds": ["DOC-ORDER-001", "DOC-AUTH-001"]
+  },
+  {
+    "id": "EVAL-006",
+    "query": "修改首页背景颜色",
+    "relevantSourceIds": []
+  },
+  {
+    "id": "EVAL-007",
+    "query": "员工请假怎么审批",
+    "relevantSourceIds": []
+  },
+  {
+  "id": "EVAL-008",
+  "query": "导出文件的下载地址需要设置有效期吗",
+  "relevantSourceIds": ["DOC-EXPORT-001"]
+  }
+]

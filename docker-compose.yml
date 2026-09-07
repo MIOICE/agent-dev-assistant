@@ -1,0 +1,43 @@
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change_me_root}
+      MYSQL_DATABASE: agent_dev_assistant
+      MYSQL_USER: agent_app
+      MYSQL_PASSWORD: ${WORKFLOW_MYSQL_PASSWORD:-change_me_app}
+    ports:
+      - "3306:3306"
+    volumes:
+      - agent_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-change_me_root}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build: .
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      APP_AI_MODE: ${APP_AI_MODE:-mock}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      WORKFLOW_REPOSITORY: mysql
+      WORKFLOW_MYSQL_URL: jdbc:mysql://mysql:3306/agent_dev_assistant?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+      WORKFLOW_MYSQL_USERNAME: agent_app
+      WORKFLOW_MYSQL_PASSWORD: ${WORKFLOW_MYSQL_PASSWORD:-change_me_app}
+      APP_EMBEDDING_TOKENIZER_URI: file:/models/bge-small-zh-v1.5/tokenizer.json
+      APP_EMBEDDING_MODEL_URI: file:/models/bge-small-zh-v1.5/model_optimized.onnx
+      EMBEDDING_CACHE_DIRECTORY: /cache/spring-ai
+      DJL_CACHE_DIRECTORY: /cache/djl
+    ports:
+      - "8080:8080"
+    volumes:
+      - ${BGE_MODEL_DIRECTORY:-F:/ai-models/bge-small-zh-v1.5}:/models/bge-small-zh-v1.5:ro
+      - agent_model_cache:/cache
+
+volumes:
+  agent_mysql_data:
+  agent_model_cache:

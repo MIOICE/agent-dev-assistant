@@ -1,0 +1,34 @@
+spring:
+  application:
+    name: agent-dev-assistant
+  ai:
+    openai:
+      base-url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com}
+      api-key: ${DEEPSEEK_API_KEY:mock-not-used}
+      chat:
+        completions-path: /chat/completions
+        options:
+          model: ${DEEPSEEK_MODEL:deepseek-v4-flash}
+          temperature: 0.1
+
+app:
+  ai:
+    mode: ${APP_AI_MODE:mock}
+  workflow:
+    repository: ${WORKFLOW_REPOSITORY:memory}
+    mysql:
+      url: ${WORKFLOW_MYSQL_URL:jdbc:mysql://127.0.0.1:3306/agent_dev_assistant?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai}
+      username: ${WORKFLOW_MYSQL_USERNAME:agent_app}
+      password: ${WORKFLOW_MYSQL_PASSWORD:}
+  embedding:
+    tokenizer-uri: file:F:/ai-models/bge-small-zh-v1.5/tokenizer.json
+    model-uri: file:F:/ai-models/bge-small-zh-v1.5/model_optimized.onnx
+    model-output-name: last_hidden_state
+    cache-directory: ${EMBEDDING_CACHE_DIRECTORY:F:/ai-models/spring-ai}
+    djl-cache-directory: ${DJL_CACHE_DIRECTORY:F:/ai-models/djl}
+    similarity-threshold: 0.45
+    top-k: 4
+    evaluation-thresholds: 0.40,0.45,0.50,0.55
+
+server:
+  port: 8080
