@@ -1,5 +1,6 @@
 target/
 .codex-target/
+.codex-stage8/
 .idea/
 .claude/
 *.iml

@@ -8,6 +8,13 @@ public record KnowledgeChunkResponse(
         String title,
         int chunkIndex,
         List<String> keywords,
+        String sourceType,
+        String sourcePath,
+        String businessModule,
+        String businessCategory,
+        String documentType,
+        String headingPath,
+        boolean sanitized,
         String content
 ) {
 }

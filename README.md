@@ -7,7 +7,7 @@
 - 需求结构化：标题、背景、模块、验收标准、缺失信息、优先级、风险。
 - 多轮澄清：信息不足时暂停，补充后使用同一 `workflowId` 恢复。
 - 业务友好澄清：将问题分为阻塞项与非阻塞假设，每轮最多展示 4 个关键问题，支持选项式回答和一键采用 Agent 推荐值。
-- RAG：业务文档解析、分块、本地 BGE 中文向量化、Top-K 检索、来源引用与离线评测。
+- 企业 RAG：可选只读加载外部 MES Markdown，按标题层级分块并附带模块、分类、文档类型和来源路径；本地 BGE 语义召回与关键词召回合并重排，支持来源去重、置信度拒答、引用和离线评测。
 - Tool Calling：业务文档检索工具和只读数据库元数据目录工具。
 - 标准 MCP Server：通过 Streamable HTTP 暴露 2 个可发现的只读工具，提供 JSON Schema、只读语义提示、白名单、参数校验和隐私化审计。
 - 方案生成：后端改动、数据库影响、API、安全、性能、测试、回滚和待确认项。
@@ -70,12 +70,33 @@ mvn spring-boot:run
 ### 不使用 PowerShell：VS Code 一键启动
 
 1. 用 VS Code 打开整个 `F:\agent-dev-assistant` 文件夹。
-2. 打开项目根目录的 `.env.local`。
+2. 如果项目根目录还没有 `.env.local`，复制 `.env.example` 并命名为 `.env.local`，然后打开它。
 3. 将 `DEEPSEEK_API_KEY=` 后面的占位内容替换成自己的密钥并保存。
 4. 打开左侧“运行和调试”，在顶部选择 `Agent - DeepSeek`。
 5. 点击绿色运行按钮或按 `F5`。
 
 `.vscode/launch.json` 已配置好主类、工作目录和环境变量文件；`.env.local` 已写入 `.gitignore`，不会被正常提交到 Git。需要切回演示模式时选择 `Agent - Mock` 即可。
+
+### 接入本地 MES 业务文档
+
+外部知识库默认关闭，原始业务文件不会被复制进项目。要启用时，在 `.env.local` 中增加：
+
+```dotenv
+MES_KNOWLEDGE_ENABLED=true
+MES_KNOWLEDGE_ROOT=F:/path/to/sanitized-mes-workspace
+MES_KNOWLEDGE_MAX_FILES=400
+MES_KNOWLEDGE_MAX_FILE_BYTES=131072
+```
+
+然后在 VS Code 选择 `Agent - Mock` 或 `Agent - DeepSeek` 并按 `F5`。启动后在工作台的“企业知识库”区域查看装载文档数、分块数、跳过数和脱敏数。加载器只允许读取 `summary` 下的业务页面及 `document` 下的需求卡片、需求分析和整体方案；其他文件会被跳过，原目录始终只读。
+
+启动完成后可直接在浏览器打开 `http://localhost:8080/` 操作。也可以用下面三条完整命令验证新接口：
+
+```text
+curl.exe "http://localhost:8080/api/knowledge/status"
+curl.exe --get "http://localhost:8080/api/knowledge/search" --data-urlencode "query=生产订单列表有哪些字段、接口和核心数据表"
+curl.exe "http://localhost:8080/api/knowledge/evaluation"
+```
 
 ## MySQL 持久化启动
 
@@ -186,7 +207,8 @@ Invoke-RestMethod -Uri "http://localhost:8080/api/system/status" -Method Get |
 | POST | `/api/workflows/{id}/approval` | 审批通过 |
 | POST | `/api/workflows/{id}/rejection` | 驳回并携带意见重生成 |
 | POST | `/api/workflows/{id}/retry` | 重试失败工作流 |
-| GET | `/api/knowledge/search?query=...` | 向量检索 |
+| GET | `/api/knowledge/search?query=...` | 混合检索并返回向量分、综合分与来源元数据 |
+| GET | `/api/knowledge/status` | 查看内置/外部文档、分块、跳过和脱敏统计 |
 | GET | `/api/knowledge/evaluation` | 运行检索评测 |
 | POST | `/api/mcp` | MCP Streamable HTTP 协议入口 |
 | GET | `/api/tools/status` | 查看 MCP 暴露边界和工具策略 |
@@ -200,7 +222,7 @@ Invoke-RestMethod -Uri "http://localhost:8080/api/system/status" -Method Get |
 
 ## 简历表述边界
 
-可以如实写“Spring AI、DeepSeek、本地 BGE RAG、Tool Calling、MCP Streamable HTTP Server、Agent Skills 语义路由与渐进式加载、Skill SHA-256 完整性校验、工具白名单与调用审计、结构化澄清、确定性策略校验、Agent Trace、运行评测、工作流状态机、Human-in-the-loop、MySQL 工作流持久化、文件 Checkpoint、异步后台任务、有界自动修复、受限代码补丁、统一 Diff、自治预算与 Docker 隔离验证”。当前没有真正实现 Redis、标准 OpenTelemetry Exporter、分布式任务队列、MCP 身份认证、第三方 Skill 签名、直接修改真实仓库、生产发布和真实业务库查询，不应写成已经完成。
+可以如实写“Spring AI、DeepSeek、本地 BGE RAG、外部 MES 文档只读接入、标题感知分块、向量与关键词混合检索、来源元数据与置信度拒答、Tool Calling、MCP Streamable HTTP Server、Agent Skills 语义路由与渐进式加载、Skill SHA-256 完整性校验、工具白名单与调用审计、结构化澄清、确定性策略校验、Agent Trace、运行评测、工作流状态机、Human-in-the-loop、MySQL 工作流持久化、文件 Checkpoint、异步后台任务、有界自动修复、受限代码补丁、统一 Diff、自治预算与 Docker 隔离验证”。当前没有真正实现 Redis、标准 OpenTelemetry Exporter、分布式任务队列、MCP 身份认证、第三方 Skill 签名、持久化向量数据库、增量索引、直接修改真实仓库、生产发布和真实业务库查询，不应写成已经完成。
 
 本轮“业务友好澄清 Agent”的实现与面试复述见 [docs/MILESTONE-01-BUSINESS-CLARIFICATION.md](docs/MILESTONE-01-BUSINESS-CLARIFICATION.md)。
 
@@ -215,5 +237,7 @@ Agent Trace 与运行评测见 [docs/MILESTONE-02-TRACE-AND-EVALS.md](docs/MILES
 Agent Skills 与渐进式上下文加载见 [docs/MILESTONE-06-AGENT-SKILLS.md](docs/MILESTONE-06-AGENT-SKILLS.md)。
 
 Skills 语义路由与供应链校验见 [docs/MILESTONE-07-SEMANTIC-SKILL-ROUTING.md](docs/MILESTONE-07-SEMANTIC-SKILL-ROUTING.md)。
+
+私有 MES 语料治理与混合 RAG 见 [docs/MILESTONE-08-PRIVATE-MES-RAG.md](docs/MILESTONE-08-PRIVATE-MES-RAG.md)。
 
 累计面试复述与追问答案见 [docs/INTERVIEW-GUIDE.md](docs/INTERVIEW-GUIDE.md)。

@@ -1,5 +1,7 @@
 package com.gaozhaoyang.agent.knowledge;
 
+import com.gaozhaoyang.agent.tool.BusinessDocument;
+import com.gaozhaoyang.agent.tool.BusinessDocumentRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
@@ -8,6 +10,8 @@ import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -21,6 +25,17 @@ public class RetrievalEvaluationDataset {
     public RetrievalEvaluationDataset(
             ObjectMapper objectMapper,
             @Value("classpath:evaluation/retrieval-cases.json")
+            Resource resource,
+            BusinessDocumentRepository documentRepository
+    ) {
+        this(mergeCases(
+                readCases(objectMapper, resource),
+                externalCases(documentRepository)
+        ));
+    }
+
+    RetrievalEvaluationDataset(
+            ObjectMapper objectMapper,
             Resource resource
     ) {
         this(readCases(objectMapper, resource));
@@ -62,5 +77,57 @@ public class RetrievalEvaluationDataset {
                     exception
             );
         }
+    }
+
+    private static List<RetrievalEvaluationCase> externalCases(
+            BusinessDocumentRepository repository
+    ) {
+        List<BusinessDocument> externalDocuments = repository.findAll().stream()
+                .filter(document -> "external-mes".equals(document.sourceType()))
+                .sorted(Comparator.comparing(BusinessDocument::sourcePath))
+                .toList();
+
+        List<BusinessDocument> candidates = new ArrayList<>();
+        candidates.addAll(documentsOfType(
+                externalDocuments,
+                "BUSINESS_PAGE",
+                2
+        ));
+        candidates.addAll(documentsOfType(
+                externalDocuments,
+                "REQUIREMENT_ANALYSIS",
+                2
+        ));
+
+        List<RetrievalEvaluationCase> evaluationCases = new ArrayList<>();
+        for (int index = 0; index < candidates.size(); index++) {
+            BusinessDocument document = candidates.get(index);
+            evaluationCases.add(new RetrievalEvaluationCase(
+                    "EVAL-MES-%03d".formatted(index + 1),
+                    document.title(),
+                    List.of(document.id())
+            ));
+        }
+        return List.copyOf(evaluationCases);
+    }
+
+    private static List<BusinessDocument> documentsOfType(
+            List<BusinessDocument> documents,
+            String documentType,
+            int limit
+    ) {
+        return documents.stream()
+                .filter(document -> documentType.equals(document.documentType()))
+                .limit(limit)
+                .toList();
+    }
+
+    private static List<RetrievalEvaluationCase> mergeCases(
+            List<RetrievalEvaluationCase> bundled,
+            List<RetrievalEvaluationCase> external
+    ) {
+        List<RetrievalEvaluationCase> merged = new ArrayList<>(bundled);
+        merged.addAll(external);
+        return List.copyOf(merged);
     }
 }

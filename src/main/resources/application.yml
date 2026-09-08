@@ -37,6 +37,12 @@ spring:
 app:
   ai:
     mode: ${APP_AI_MODE:mock}
+  knowledge:
+    external:
+      enabled: ${MES_KNOWLEDGE_ENABLED:false}
+      root: ${MES_KNOWLEDGE_ROOT:}
+      max-files: ${MES_KNOWLEDGE_MAX_FILES:400}
+      max-file-bytes: ${MES_KNOWLEDGE_MAX_FILE_BYTES:131072}
   skills:
     location-pattern: classpath*:agent-skills/*/SKILL.md
     manifest-location: classpath:agent-skills/manifest.sha256
@@ -64,6 +70,7 @@ app:
     cache-directory: ${EMBEDDING_CACHE_DIRECTORY:F:/ai-models/spring-ai}
     djl-cache-directory: ${DJL_CACHE_DIRECTORY:F:/ai-models/djl}
     similarity-threshold: 0.45
+    confidence-threshold: 0.65
     top-k: 4
     evaluation-thresholds: 0.40,0.45,0.50,0.55
 

@@ -51,4 +51,45 @@ class BusinessDocumentChunkerTest {
                 .containsEntry("keywords", List.of("导出", "权限"))
                 .containsEntry("chunkIndex", 1);
     }
+
+    @Test
+    void shouldSplitMarkdownByHeadingAndKeepBusinessSourceMetadata() {
+        BusinessDocument source = new BusinessDocument(
+                "MES:summary/订单执行/订单管理/生产订单列表.md",
+                "生产订单列表",
+                List.of("订单执行", "订单管理"),
+                """
+                        # 生产订单列表
+
+                        ## 页面职责
+                        负责订单查询和建立。
+
+                        ## 核心表
+                        使用 wafer_store 保存订单。
+                        """,
+                "external-mes",
+                "summary/订单执行/订单管理/生产订单列表.md",
+                "订单执行",
+                "订单管理",
+                "BUSINESS_PAGE",
+                false
+        );
+
+        List<Document> chunks = chunker.split(List.of(source));
+
+        assertThat(chunks).hasSizeGreaterThanOrEqualTo(2);
+        assertThat(chunks)
+                .extracting(document ->
+                        document.getMetadata().get("sourcePath")
+                )
+                .containsOnly("summary/订单执行/订单管理/生产订单列表.md");
+        assertThat(chunks)
+                .extracting(document ->
+                        document.getMetadata().get("headingPath")
+                )
+                .anyMatch(path -> String.valueOf(path).contains("页面职责"))
+                .anyMatch(path -> String.valueOf(path).contains("核心表"));
+        assertThat(chunks.getFirst().getText())
+                .contains("订单执行", "生产订单列表");
+    }
 }

@@ -334,6 +334,15 @@
         .chunk-meta { margin: 0 0 10px; color: var(--primary); font-size: 12px; font-weight: 800; }
         .chunk-title { margin: 0 0 9px; font-size: 15px; }
         .chunk-keywords { margin: 0 0 10px; color: var(--muted); font-size: 12px; }
+        .chunk-source {
+            margin: 0 0 10px;
+            padding: 8px 10px;
+            border-radius: 8px;
+            color: #526075;
+            background: #f5f7fb;
+            font: 12px/1.5 "Cascadia Code", Consolas, monospace;
+            overflow-wrap: anywhere;
+        }
         .chunk-content { margin: 0; color: #455167; font-size: 13px; line-height: 1.7; white-space: pre-wrap; }
 
         @media (max-width: 720px) {
@@ -505,13 +514,22 @@
         knowledgeButton.textContent = '正在加载…';
 
         try {
-            const response = await fetch('/api/knowledge/chunks');
-            if (!response.ok) {
-                throw new Error(`知识库加载失败，HTTP状态码：${response.status}`);
+            const [statusResponse, chunksResponse] = await Promise.all([
+                fetch('/api/knowledge/status'),
+                fetch('/api/knowledge/chunks?limit=120')
+            ]);
+            if (!statusResponse.ok || !chunksResponse.ok) {
+                const statusCode = !statusResponse.ok
+                    ? statusResponse.status
+                    : chunksResponse.status;
+                throw new Error(`知识库加载失败，HTTP状态码：${statusCode}`);
             }
 
-            const chunks = await response.json();
-            renderKnowledgeChunks(chunks);
+            const [status, chunks] = await Promise.all([
+                statusResponse.json(),
+                chunksResponse.json()
+            ]);
+            renderKnowledgeChunks(chunks, status);
             knowledgePanel.classList.remove('hidden');
             knowledgePanel.scrollIntoView({ behavior: 'smooth' });
         } catch (error) {
@@ -524,10 +542,15 @@
         }
     }
 
-    function renderKnowledgeChunks(chunks) {
-        const sourceCount = new Set(chunks.map(chunk => chunk.sourceId)).size;
+    function renderKnowledgeChunks(chunks, status) {
+        const privateCorpus = status.externalLoaded
+            ? `已接入 ${status.externalDocuments} 份 MES 私有文档，` +
+              `跳过 ${status.skippedDocuments} 个非业务或高风险文件，` +
+              `${status.sanitizedDocuments} 份经过二次脱敏；`
+            : `当前使用 ${status.bundledDocuments} 份内置演示文档；`;
         document.querySelector('#knowledgeSummary').textContent =
-            `${sourceCount} 份源文档，共生成 ${chunks.length} 个 Chunk`;
+            `${privateCorpus}共 ${status.sourceDocuments} 份源文档、` +
+            `${status.chunks} 个 Chunk，当前展示前 ${chunks.length} 个`;
         renderChunkCards(chunks, false);
     }
 
@@ -552,8 +575,8 @@
 
             const results = await response.json();
             document.querySelector('#knowledgeSummary').textContent = results.length === 0
-                ? `“${query}”没有达到相似度阈值的结果`
-                : `“${query}”召回 ${results.length} 个 Chunk，已按相似度降序排列`;
+                ? `“${query}”没有达到最终置信度阈值的结果`
+                : `“${query}”召回 ${results.length} 个 Chunk，已按混合检索综合分排序`;
             renderChunkCards(results, true);
         } catch (error) {
             showError(error.message);
@@ -726,8 +749,13 @@
 
             const meta = document.createElement('p');
             meta.className = 'chunk-meta';
-            const scoreText = showScore ? ` · 相似度 ${chunk.score.toFixed(3)}` : '';
-            meta.textContent = `${chunk.id} · 第 ${chunk.chunkIndex} 块${scoreText}`;
+            const scoreText = showScore
+                ? ` · 综合分 ${chunk.score.toFixed(3)} · 向量 ${chunk.vectorScore.toFixed(3)}`
+                : '';
+            const typeText = chunk.sourceType === 'external-mes'
+                ? 'MES 私有语料'
+                : '内置规范';
+            meta.textContent = `${typeText} · 第 ${chunk.chunkIndex} 块${scoreText}`;
 
             const title = document.createElement('h3');
             title.className = 'chunk-title';
@@ -735,13 +763,22 @@
 
             const keywords = document.createElement('p');
             keywords.className = 'chunk-keywords';
-            keywords.textContent = `关键词：${chunk.keywords.join('、')}`;
+            const modulePath = [chunk.businessModule, chunk.businessCategory]
+                .filter(Boolean)
+                .join(' / ');
+            keywords.textContent = `业务位置：${modulePath || '通用规范'} · ` +
+                `章节：${chunk.headingPath || chunk.title}`;
+
+            const source = document.createElement('p');
+            source.className = 'chunk-source';
+            source.textContent = `来源：${chunk.sourcePath || chunk.sourceId}` +
+                `${chunk.sanitized ? ' · 已二次脱敏' : ''}`;
 
             const content = document.createElement('p');
             content.className = 'chunk-content';
             content.textContent = chunk.content;
 
-            card.append(meta, title, keywords, content);
+            card.append(meta, title, keywords, source, content);
             chunkGrid.append(card);
         });
     }
@@ -852,7 +889,11 @@
         const retrievedReferences = Array.isArray(workflow.knowledgeResults)
             ? workflow.knowledgeResults.map(item => {
                 const score = Number(item.score || 0);
-                return `${item.title || item.sourceId}（${item.sourceId} · 相似度 ${(score * 100).toFixed(1)}%）`;
+                const sourcePath = item.sourcePath
+                    ? ` · ${item.sourcePath}`
+                    : '';
+                return `${item.title || item.sourceId}（${item.sourceId}${sourcePath} · ` +
+                    `综合相关度 ${(score * 100).toFixed(1)}%）`;
             })
             : [];
         const references = [...new Set([

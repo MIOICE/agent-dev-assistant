@@ -2,12 +2,15 @@ package com.gaozhaoyang.agent.tool;
 
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Repository;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -22,16 +25,59 @@ public class BusinessDocumentRepository {
             "classpath*:knowledge/business/*.md";
 
     private final List<BusinessDocument> documents;
+    private final KnowledgeIngestionStatistics statistics;
 
     public BusinessDocumentRepository() {
-        this.documents = loadDocuments();
+        this(false, "", 400, 131_072L);
+    }
+
+    @Autowired
+    public BusinessDocumentRepository(
+            @Value("${app.knowledge.external.enabled:false}")
+            boolean externalEnabled,
+            @Value("${app.knowledge.external.root:}")
+            String externalRoot,
+            @Value("${app.knowledge.external.max-files:400}")
+            int maxExternalFiles,
+            @Value("${app.knowledge.external.max-file-bytes:131072}")
+            long maxExternalFileBytes
+    ) {
+        List<BusinessDocument> bundledDocuments = loadBundledDocuments();
+        List<BusinessDocument> allDocuments = new ArrayList<>(bundledDocuments);
+
+        MesKnowledgeDocumentLoader.LoadResult externalResult =
+                new MesKnowledgeDocumentLoader.LoadResult(List.of(), 0, 0);
+        if (externalEnabled) {
+            if (externalRoot == null || externalRoot.isBlank()) {
+                throw new IllegalArgumentException(
+                        "已开启 MES 外部知识库，但 MES_KNOWLEDGE_ROOT 为空"
+                );
+            }
+            externalResult = new MesKnowledgeDocumentLoader().load(
+                    Path.of(externalRoot),
+                    maxExternalFiles,
+                    maxExternalFileBytes
+            );
+            allDocuments.addAll(externalResult.documents());
+        }
+
+        this.documents = List.copyOf(allDocuments);
+        this.statistics = buildStatistics(
+                externalEnabled,
+                bundledDocuments.size(),
+                externalResult
+        );
     }
 
     public List<BusinessDocument> findAll() {
         return documents;
     }
 
-    private List<BusinessDocument> loadDocuments() {
+    public KnowledgeIngestionStatistics statistics() {
+        return statistics;
+    }
+
+    private List<BusinessDocument> loadBundledDocuments() {
         PathMatchingResourcePatternResolver resolver =
                 new PathMatchingResourcePatternResolver();
 
@@ -129,7 +175,38 @@ public class BusinessDocumentRepository {
             throw invalidDocument(filename, "keywords 不能为空");
         }
 
-        return new BusinessDocument(id, title, keywords, content);
+        return new BusinessDocument(
+                id,
+                title,
+                keywords,
+                content,
+                "bundled",
+                "knowledge/business/" + filename,
+                "通用规范",
+                "",
+                "BUSINESS_POLICY",
+                false
+        );
+    }
+
+    private KnowledgeIngestionStatistics buildStatistics(
+            boolean externalEnabled,
+            int bundledCount,
+            MesKnowledgeDocumentLoader.LoadResult externalResult
+    ) {
+        Map<String, Integer> byType = new LinkedHashMap<>();
+        for (BusinessDocument document : documents) {
+            byType.merge(document.documentType(), 1, Integer::sum);
+        }
+        return new KnowledgeIngestionStatistics(
+                externalEnabled,
+                externalEnabled && !externalResult.documents().isEmpty(),
+                bundledCount,
+                externalResult.documents().size(),
+                externalResult.skippedDocuments(),
+                externalResult.sanitizedDocuments(),
+                byType
+        );
     }
 
     private String requiredMetadata(

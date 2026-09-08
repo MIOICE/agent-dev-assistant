@@ -35,11 +35,14 @@ public class BusinessDocumentTools {
         }
 
         return matches.stream()
-                .map(document -> "[%s｜%s｜片段%s｜相似度%.3f]%n%s".formatted(
+                .map(document -> "[%s｜%s｜%s｜片段%s｜综合分%.3f｜向量%.3f]%n来源：%s%n%s".formatted(
                         document.getMetadata().get("sourceId"),
                         document.getMetadata().get("title"),
+                        document.getMetadata().get("headingPath"),
                         document.getMetadata().get("chunkIndex"),
                         document.getScore(),
+                        document.getMetadata().get("vectorScore"),
+                        document.getMetadata().get("sourcePath"),
                         document.getText()
                 ))
                 .collect(Collectors.joining("\n\n"));

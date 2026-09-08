@@ -47,7 +47,19 @@ class KnowledgeControllerTest {
                 .andExpect(jsonPath("$[0].sourceId").isNotEmpty())
                 .andExpect(jsonPath("$[0].chunkIndex").isNumber())
                 .andExpect(jsonPath("$[0].keywords").isArray())
+                .andExpect(jsonPath("$[0].sourceType").value("bundled"))
+                .andExpect(jsonPath("$[0].documentType")
+                        .value("BUSINESS_POLICY"))
+                .andExpect(jsonPath("$[0].headingPath").isNotEmpty())
                 .andExpect(jsonPath("$[0].content").isNotEmpty());
+
+        mockMvc.perform(get("/api/knowledge/status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.externalEnabled").value(false))
+                .andExpect(jsonPath("$.sourceDocuments").value(3))
+                .andExpect(jsonPath("$.bundledDocuments").value(3))
+                .andExpect(jsonPath("$.externalDocuments").value(0))
+                .andExpect(jsonPath("$.chunks").isNumber());
 
         mockMvc.perform(get("/api/knowledge/search")
                         .param("query", "订单全量导出"))

@@ -27,10 +27,19 @@ public class KnowledgeController {
     }
 
     @GetMapping("/chunks")
-    public List<KnowledgeChunkResponse> chunks() {
+    public List<KnowledgeChunkResponse> chunks(
+            @RequestParam(defaultValue = "200") int limit
+    ) {
+        int safeLimit = Math.min(Math.max(limit, 1), 500);
         return knowledgeBase.findAllChunks().stream()
+                .limit(safeLimit)
                 .map(this::toResponse)
                 .toList();
+    }
+
+    @GetMapping("/status")
+    public KnowledgeCorpusStatus status() {
+        return knowledgeBase.status();
     }
 
     @GetMapping("/search")
@@ -59,6 +68,13 @@ public class KnowledgeController {
                 metadataString(document, "title"),
                 metadataInteger(document, "chunkIndex"),
                 metadataStringList(document, "keywords"),
+                metadataString(document, "sourceType"),
+                metadataString(document, "sourcePath"),
+                metadataString(document, "businessModule"),
+                metadataString(document, "businessCategory"),
+                metadataString(document, "documentType"),
+                metadataString(document, "headingPath"),
+                metadataBoolean(document, "sanitized"),
                 document.getText()
         );
     }
@@ -84,5 +100,10 @@ public class KnowledgeController {
             throw new IllegalStateException("文档元数据不是列表：" + key);
         }
         return values.stream().map(String::valueOf).toList();
+    }
+
+    private boolean metadataBoolean(Document document, String key) {
+        Object value = document.getMetadata().get(key);
+        return value instanceof Boolean booleanValue && booleanValue;
     }
 }

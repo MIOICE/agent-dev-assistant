@@ -18,6 +18,7 @@
             "mainClass": "com.gaozhaoyang.agent.AgentDevAssistantApplication",
             "projectName": "agent-dev-assistant",
             "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.env.local",
             "env": {
                 "APP_AI_MODE": "mock",
                 "WORKFLOW_REPOSITORY": "memory"
