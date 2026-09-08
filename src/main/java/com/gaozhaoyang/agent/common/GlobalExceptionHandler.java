@@ -1,5 +1,6 @@
 package com.gaozhaoyang.agent.common;
 
+import com.gaozhaoyang.agent.coding.CodingTaskException;
 import com.gaozhaoyang.agent.requirement.RequirementAnalysisException;
 import com.gaozhaoyang.agent.solution.SolutionGenerationException;
 import com.gaozhaoyang.agent.workflow.InvalidWorkflowStateException;
@@ -82,6 +83,16 @@ public class GlobalExceptionHandler {
     ) {
         return new ApiError(
                 "WORKFLOW_STORAGE_UNAVAILABLE",
+                exception.getMessage(),
+                Instant.now()
+        );
+    }
+
+    @ExceptionHandler(CodingTaskException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ApiError handleCodingTask(CodingTaskException exception) {
+        return new ApiError(
+                "CODING_TASK_REJECTED",
                 exception.getMessage(),
                 Instant.now()
         );

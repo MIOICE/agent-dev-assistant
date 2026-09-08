@@ -3,10 +3,15 @@ package com.gaozhaoyang.agent.requirement;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 
 @Component
 public class RequirementCardValidator {
+
+    private static final int MAX_BLOCKING_QUESTIONS = 4;
 
     private static final Set<String> ALLOWED_PRIORITIES =
             Set.of("P0", "P1", "P2");
@@ -32,14 +37,26 @@ public class RequirementCardValidator {
         List<String> acceptanceCriteria =
                 nullToEmpty(card.acceptanceCriteria());
 
-        List<String> missingInformation =
-                nullToEmpty(card.missingInformation());
-
         List<String> risks =
                 nullToEmpty(card.risks());
 
         List<String> references =
                 nullToEmpty(card.references());
+
+        List<ClarificationQuestion> clarificationQuestions =
+                normalizeQuestions(card);
+        List<String> missingInformation = clarificationQuestions.stream()
+                .filter(ClarificationQuestion::blocking)
+                .map(ClarificationQuestion::question)
+                .toList();
+        List<String> assumptions = new ArrayList<>(nullToEmpty(card.assumptions()));
+        clarificationQuestions.stream()
+                .filter(question -> !question.blocking())
+                .filter(question -> !question.recommendedAnswer().isBlank())
+                .map(question -> question.question() + "：默认采用“"
+                        + question.recommendedAnswer() + "”")
+                .forEach(assumptions::add);
+        assumptions = assumptions.stream().distinct().toList();
 
         boolean readyForPlanning = missingInformation.isEmpty();
 
@@ -52,8 +69,52 @@ public class RequirementCardValidator {
                 card.priority(),
                 risks,
                 references,
+                clarificationQuestions,
+                assumptions,
                 readyForPlanning
         );
+    }
+
+    private List<ClarificationQuestion> normalizeQuestions(RequirementCard card) {
+        List<ClarificationQuestion> source = card.clarificationQuestions();
+        if (source == null || source.isEmpty()) {
+            source = nullToEmpty(card.missingInformation()).stream()
+                    .map(question -> new ClarificationQuestion(
+                            "业务规则", question, List.of(), "", true))
+                    .toList();
+        }
+
+        Map<String, ClarificationQuestion> unique = new LinkedHashMap<>();
+        int blockingCount = 0;
+        for (ClarificationQuestion question : source) {
+            if (question == null || question.question().isBlank()) {
+                continue;
+            }
+            List<String> options = question.options();
+            String recommendedAnswer = question.recommendedAnswer();
+            if (recommendedAnswer.isBlank() && !options.isEmpty()) {
+                recommendedAnswer = options.getFirst();
+            }
+            if (!recommendedAnswer.isBlank() && !options.contains(recommendedAnswer)) {
+                List<String> expandedOptions = new ArrayList<>(options);
+                expandedOptions.add(recommendedAnswer);
+                options = List.copyOf(expandedOptions);
+            }
+            ClarificationQuestion normalized = new ClarificationQuestion(
+                    question.category(), question.question(), options,
+                    recommendedAnswer, question.blocking());
+            if (question.blocking() && blockingCount >= MAX_BLOCKING_QUESTIONS) {
+                continue;
+            }
+            String key = question.question().replaceAll("[？?。\\s]", "");
+            if (!unique.containsKey(key)) {
+                unique.put(key, normalized);
+                if (normalized.blocking()) {
+                    blockingCount++;
+                }
+            }
+        }
+        return List.copyOf(unique.values());
     }
 
     private List<String> nullToEmpty(List<String> values) {

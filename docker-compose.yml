@@ -22,6 +22,7 @@ services:
       mysql:
         condition: service_healthy
     environment:
+      SERVER_ADDRESS: 0.0.0.0
       APP_AI_MODE: ${APP_AI_MODE:-mock}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       WORKFLOW_REPOSITORY: mysql

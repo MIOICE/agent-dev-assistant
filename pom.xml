@@ -17,7 +17,8 @@
 
     <properties>
         <java.version>21</java.version>
-        <spring-ai.version>2.0.0</spring-ai.version>
+        <spring-ai.version>2.0.1</spring-ai.version>
+        <agent.build.directory>${project.basedir}/target</agent.build.directory>
     </properties>
 
     <dependencyManagement>
@@ -52,6 +53,10 @@
         </dependency>
         <dependency>
             <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-transformers</artifactId>
         </dependency>
         <dependency>
@@ -72,6 +77,7 @@
     </dependencies>
 
     <build>
+        <directory>${agent.build.directory}</directory>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>

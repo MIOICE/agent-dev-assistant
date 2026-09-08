@@ -1,4 +1,5 @@
 target/
+.codex-target/
 .idea/
 .claude/
 *.iml

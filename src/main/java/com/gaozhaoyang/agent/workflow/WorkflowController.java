@@ -39,6 +39,16 @@ public class WorkflowController {
         return requirementWorkflowService.get(workflowId);
     }
 
+    @GetMapping("/metrics")
+    public WorkflowMetrics metrics() {
+        return requirementWorkflowService.metrics();
+    }
+
+    @GetMapping("/{workflowId}/trace")
+    public WorkflowTraceReport trace(@PathVariable String workflowId) {
+        return requirementWorkflowService.trace(workflowId);
+    }
+
     @PostMapping("/{workflowId}/clarifications")
     public WorkflowState clarify(
             @PathVariable String workflowId,
@@ -48,6 +58,11 @@ public class WorkflowController {
                 workflowId,
                 request.clarification()
         );
+    }
+
+    @PostMapping("/{workflowId}/clarifications/recommendations")
+    public WorkflowState acceptRecommendedClarifications(@PathVariable String workflowId) {
+        return requirementWorkflowService.acceptRecommendedClarifications(workflowId);
     }
 
     @PostMapping("/{workflowId}/approval")

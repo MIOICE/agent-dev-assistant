@@ -2,6 +2,7 @@ package com.gaozhaoyang.agent.workflow;
 
 import com.gaozhaoyang.agent.knowledge.KnowledgeSearcher;
 import com.gaozhaoyang.agent.requirement.RequirementAnalyzer;
+import com.gaozhaoyang.agent.requirement.ClarificationQuestion;
 import com.gaozhaoyang.agent.requirement.RequirementCard;
 import com.gaozhaoyang.agent.solution.SolutionGenerator;
 import com.gaozhaoyang.agent.solution.TechnicalSolution;
@@ -109,6 +110,14 @@ class RequirementWorkflowServiceTest {
         assertThat(state.knowledgeResults().getFirst().sourceId())
                 .isEqualTo("DOC-EXPORT-001");
         assertThat(state.technicalSolution()).isEqualTo(technicalSolution);
+        assertThat(state.traceSpans())
+                .extracting(AgentTraceSpan::operation)
+                .containsExactly(
+                        "agent.requirement-analysis",
+                        "rag.knowledge-retrieval",
+                        "agent.solution-generation"
+                );
+        assertThat(state.traceSpans()).allMatch(span -> "SUCCESS".equals(span.status()));
     }
 
     @Test
@@ -187,6 +196,66 @@ class RequirementWorkflowServiceTest {
         assertThat(resumedState.stage()).isEqualTo(WorkflowStage.WAITING_APPROVAL);
         assertThat(resumedState.technicalSolution()).isEqualTo(solution);
         assertThat(service.get(resumedState.workflowId())).isEqualTo(resumedState);
+    }
+
+    @Test
+    void shouldResumeWorkflowWithRecommendedBusinessChoices() {
+        RequirementCard incompleteCard = new RequirementCard(
+                "订单导出",
+                "订单列表增加导出",
+                List.of("订单管理"),
+                List.of("可以导出订单"),
+                List.of("导出范围按什么确定？"),
+                "P2",
+                List.of(),
+                List.of(),
+                List.of(new ClarificationQuestion(
+                        "范围",
+                        "导出范围按什么确定？",
+                        List.of("当前筛选结果", "全部有权限的数据"),
+                        "当前筛选结果",
+                        true
+                )),
+                List.of("超过一万条时使用异步任务"),
+                false
+        );
+        RequirementCard completeCard = new RequirementCard(
+                "订单导出",
+                "导出当前筛选结果",
+                List.of("订单管理"),
+                List.of("导出结果与筛选条件一致"),
+                List.of(),
+                "P2",
+                List.of(),
+                List.of(),
+                true
+        );
+        AtomicReference<String> analyzedRequirement = new AtomicReference<>();
+        RequirementAnalyzer analyzer = requirement -> {
+            analyzedRequirement.set(requirement);
+            return requirement.contains("用户已明确接受Agent推荐值")
+                    ? completeCard
+                    : incompleteCard;
+        };
+        RequirementWorkflowService service = new RequirementWorkflowService(
+                analyzer,
+                query -> List.of(),
+                (card, knowledge) -> sampleSolution(),
+                new InMemoryWorkflowRepository()
+        );
+
+        WorkflowState waiting = service.start("订单列表增加导出");
+        WorkflowState resumed = service.acceptRecommendedClarifications(waiting.workflowId());
+
+        assertThat(resumed.stage()).isEqualTo(WorkflowStage.WAITING_APPROVAL);
+        assertThat(resumed.workflowId()).isEqualTo(waiting.workflowId());
+        assertThat(resumed.clarifications().getFirst())
+                .contains("导出范围按什么确定？ => 当前筛选结果");
+        assertThat(analyzedRequirement.get()).contains("用户已明确接受Agent推荐值");
+        WorkflowMetrics metrics = service.metrics();
+        assertThat(metrics.totalWorkflows()).isEqualTo(1);
+        assertThat(metrics.averageClarificationRounds()).isEqualTo(1);
+        assertThat(metrics.recommendationAcceptanceRate()).isEqualTo(1);
     }
 
     @Test
@@ -269,6 +338,10 @@ class RequirementWorkflowServiceTest {
 
         assertThat(failed.stage()).isEqualTo(WorkflowStage.FAILED);
         assertThat(failed.failureMessage()).contains("需求分析");
+        assertThat(failed.traceSpans()).hasSize(1);
+        assertThat(failed.traceSpans().getFirst().status()).isEqualTo("ERROR");
+        assertThat(failed.traceSpans().getFirst().attributes())
+                .containsEntry("error.type", "RuntimeException");
         assertThat(retried.workflowId()).isEqualTo(failed.workflowId());
         assertThat(retried.stage()).isEqualTo(WorkflowStage.WAITING_APPROVAL);
         assertThat(retried.events()).extracting(WorkflowEvent::type)
@@ -289,6 +362,27 @@ class RequirementWorkflowServiceTest {
         assertThat(page.content()).hasSize(2);
         assertThat(page.content()).allMatch(item ->
                 item.stage() == WorkflowStage.WAITING_APPROVAL);
+    }
+
+    @Test
+    void shouldBuildTraceReportAndAggregateWorkflowMetrics() {
+        RequirementWorkflowService service = readyWorkflowService(
+                (card, knowledge) -> sampleSolution()
+        );
+        WorkflowState first = service.start("订单列表增加全量导出功能");
+        service.approve(first.workflowId(), "确认");
+        WorkflowState second = service.start("订单状态批量修改功能");
+
+        WorkflowTraceReport trace = service.trace(second.workflowId());
+        WorkflowMetrics metrics = service.metrics();
+
+        assertThat(trace.traceId()).isEqualTo(second.workflowId());
+        assertThat(trace.spanCount()).isEqualTo(3);
+        assertThat(trace.failedSpanCount()).isZero();
+        assertThat(metrics.totalWorkflows()).isEqualTo(2);
+        assertThat(metrics.firstPassReadyRate()).isEqualTo(1);
+        assertThat(metrics.completionRate()).isEqualTo(0.5);
+        assertThat(metrics.failureRate()).isZero();
     }
 
     private RequirementWorkflowService readyWorkflowService(SolutionGenerator generator) {

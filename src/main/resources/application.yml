@@ -2,6 +2,29 @@ spring:
   application:
     name: agent-dev-assistant
   ai:
+    tools:
+      limits:
+        max-total-tool-calls: 8
+        max-calls-per-tool-default: 4
+    mcp:
+      server:
+        enabled: ${MCP_SERVER_ENABLED:true}
+        protocol: STREAMABLE
+        type: SYNC
+        name: enterprise-requirement-tools
+        version: 0.3.0
+        instructions: "只读查询企业业务规范与演示数据库元数据，不读取业务数据，不执行写操作。"
+        tool-callback-converter: false
+        capabilities:
+          tool: true
+          resource: false
+          prompt: false
+          completion: false
+        annotation-scanner:
+          enabled: true
+        streamable-http:
+          mcp-endpoint: /api/mcp
+          disallow-delete: true
     openai:
       base-url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com}
       api-key: ${DEEPSEEK_API_KEY:mock-not-used}
@@ -20,6 +43,10 @@ app:
       url: ${WORKFLOW_MYSQL_URL:jdbc:mysql://127.0.0.1:3306/agent_dev_assistant?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai}
       username: ${WORKFLOW_MYSQL_USERNAME:agent_app}
       password: ${WORKFLOW_MYSQL_PASSWORD:}
+  coding:
+    sandbox-root: ${CODING_SANDBOX_ROOT:F:/agent-workspaces/sandboxes}
+    approved-root: ${CODING_APPROVED_ROOT:F:/agent-workspaces/approved}
+    maven-repository: ${CODING_MAVEN_REPOSITORY:F:/dev/ide/apache-maven-3.9.9/mvn_repo}
   embedding:
     tokenizer-uri: file:F:/ai-models/bge-small-zh-v1.5/tokenizer.json
     model-uri: file:F:/ai-models/bge-small-zh-v1.5/model_optimized.onnx
@@ -31,4 +58,5 @@ app:
     evaluation-thresholds: 0.40,0.45,0.50,0.55
 
 server:
+  address: ${SERVER_ADDRESS:127.0.0.1}
   port: 8080

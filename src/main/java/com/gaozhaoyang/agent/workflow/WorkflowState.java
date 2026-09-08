@@ -22,6 +22,7 @@ public record WorkflowState(
         int revision,
         Instant createdAt,
         Instant updatedAt,
+        List<AgentTraceSpan> traceSpans,
         String failureMessage
 ) {
     public WorkflowState {
@@ -29,6 +30,7 @@ public record WorkflowState(
         knowledgeResults = knowledgeResults == null ? List.of() : List.copyOf(knowledgeResults);
         solutionFeedbacks = solutionFeedbacks == null ? List.of() : List.copyOf(solutionFeedbacks);
         events = events == null ? List.of() : List.copyOf(events);
+        traceSpans = traceSpans == null ? List.of() : List.copyOf(traceSpans);
         stage = stage == null ? WorkflowStage.REQUIREMENT_ANALYSIS : stage;
         revision = Math.max(revision, 1);
         createdAt = createdAt == null ? Instant.now() : createdAt;
@@ -55,6 +57,7 @@ public record WorkflowState(
                 1,
                 now,
                 now,
+                List.of(),
                 null
         );
     }
@@ -130,6 +133,16 @@ public record WorkflowState(
         return requirement + "\n\n用户补充信息：\n- " + String.join("\n- ", clarifications);
     }
 
+    public WorkflowState addTraceSpan(AgentTraceSpan span) {
+        List<AgentTraceSpan> updatedSpans = new ArrayList<>(traceSpans);
+        updatedSpans.add(span);
+        return new WorkflowState(
+                workflowId, requirement, clarifications, stage, requirementCard,
+                knowledgeResults, technicalSolution, solutionFeedbacks, events,
+                revision, createdAt, updatedAt, updatedSpans, failureMessage
+        );
+    }
+
     private WorkflowState transition(
             WorkflowStage nextStage,
             RequirementCard nextCard,
@@ -145,6 +158,6 @@ public record WorkflowState(
         updatedEvents.add(WorkflowEvent.of(eventType, eventMessage));
         return new WorkflowState(workflowId, requirement, nextClarifications, nextStage,
                 nextCard, nextKnowledge, nextSolution, nextFeedbacks, updatedEvents,
-                revision + 1, createdAt, Instant.now(), nextFailureMessage);
+                revision + 1, createdAt, Instant.now(), traceSpans, nextFailureMessage);
     }
 }

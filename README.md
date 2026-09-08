@@ -6,13 +6,17 @@
 
 - 需求结构化：标题、背景、模块、验收标准、缺失信息、优先级、风险。
 - 多轮澄清：信息不足时暂停，补充后使用同一 `workflowId` 恢复。
+- 业务友好澄清：将问题分为阻塞项与非阻塞假设，每轮最多展示 4 个关键问题，支持选项式回答和一键采用 Agent 推荐值。
 - RAG：业务文档解析、分块、本地 BGE 中文向量化、Top-K 检索、来源引用与离线评测。
 - Tool Calling：业务文档检索工具和只读数据库元数据目录工具。
+- 标准 MCP Server：通过 Streamable HTTP 暴露 2 个可发现的只读工具，提供 JSON Schema、只读语义提示、白名单、参数校验和隐私化审计。
 - 方案生成：后端改动、数据库影响、API、安全、性能、测试、回滚和待确认项。
 - Human-in-the-loop：方案审批、驳回意见回传、重新生成、最终完成。
 - 可靠性：失败状态持久化、日志记录、原工作流重试、参数校验、统一异常响应。
 - 持久化：内存 / MySQL 可切换，工作流列表、阶段筛选、版本号和事件时间线。
 - 可视化操作台：历史工作流、页面恢复、澄清、审批、驳回、重试、知识库评测。
+- Trace 与运行评测：持久化需求分析、RAG、方案生成等节点的状态、耗时和统计属性，展示首轮就绪率、平均澄清轮数、推荐值采纳率及完成率。
+- 安全编码任务：从已审批技术方案生成受限 Java 补丁和统一 Diff，在无网络 Docker 沙箱中离线运行 Maven 测试，并经二次人工审批输出独立产物。
 - 工程验证：JUnit 5、MockMvc、H2 MySQL 兼容测试和 Docker Compose。
 
 详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
@@ -170,14 +174,33 @@ Invoke-RestMethod -Uri "http://localhost:8080/api/system/status" -Method Get |
 | POST | `/api/workflows` | 创建并推进工作流 |
 | GET | `/api/workflows` | 分页查询工作流，可按阶段筛选 |
 | GET | `/api/workflows/{id}` | 查询完整快照和事件历史 |
+| GET | `/api/workflows/{id}/trace` | 查询单次工作流 Agent Span |
+| GET | `/api/workflows/metrics` | 查询工作流质量与运行指标 |
 | POST | `/api/workflows/{id}/clarifications` | 补充需求并继续 |
+| POST | `/api/workflows/{id}/clarifications/recommendations` | 采用当前阻塞问题的推荐值并继续 |
 | POST | `/api/workflows/{id}/approval` | 审批通过 |
 | POST | `/api/workflows/{id}/rejection` | 驳回并携带意见重生成 |
 | POST | `/api/workflows/{id}/retry` | 重试失败工作流 |
 | GET | `/api/knowledge/search?query=...` | 向量检索 |
 | GET | `/api/knowledge/evaluation` | 运行检索评测 |
+| POST | `/api/mcp` | MCP Streamable HTTP 协议入口 |
+| GET | `/api/tools/status` | 查看 MCP 暴露边界和工具策略 |
+| GET | `/api/tools/audits` | 查看最近工具调用审计 |
+| POST | `/api/coding-tasks?workflowId=...` | 为已审批工作流生成并验证代码补丁 |
+| GET | `/api/coding-tasks/workflow/{workflowId}` | 查询工作流对应的代码任务 |
+| POST | `/api/coding-tasks/{taskId}/approval` | 人工批准测试通过的代码产物 |
 | GET | `/api/system/status` | 查看模型与仓库运行模式 |
 
 ## 简历表述边界
 
-可以如实写“Spring AI、DeepSeek、本地 BGE RAG、Tool Calling、工作流状态机、Human-in-the-loop、MySQL 快照持久化、失败恢复与自动化测试”。当前没有真正实现 Redis、自动修改代码、生产发布和真实业务库查询，不应写成已经完成。
+可以如实写“Spring AI、DeepSeek、本地 BGE RAG、Tool Calling、MCP Streamable HTTP Server、工具白名单与调用审计、结构化澄清、确定性策略校验、Agent Trace、运行评测、工作流状态机、Human-in-the-loop、MySQL 快照持久化、受限代码补丁、统一 Diff、自治预算与 Docker 隔离验证”。当前没有真正实现 Redis、标准 OpenTelemetry Exporter、MCP 身份认证、直接修改真实仓库、生产发布和真实业务库查询，不应写成已经完成。
+
+本轮“业务友好澄清 Agent”的实现与面试复述见 [docs/MILESTONE-01-BUSINESS-CLARIFICATION.md](docs/MILESTONE-01-BUSINESS-CLARIFICATION.md)。
+
+Agent Trace 与运行评测见 [docs/MILESTONE-02-TRACE-AND-EVALS.md](docs/MILESTONE-02-TRACE-AND-EVALS.md)。
+
+标准 MCP Server 与工具治理见 [docs/MILESTONE-03-MCP-TOOL-GOVERNANCE.md](docs/MILESTONE-03-MCP-TOOL-GOVERNANCE.md)。
+
+安全代码工作区与自治预算见 [docs/MILESTONE-04-SAFE-CODING-SANDBOX.md](docs/MILESTONE-04-SAFE-CODING-SANDBOX.md)。
+
+累计面试复述与追问答案见 [docs/INTERVIEW-GUIDE.md](docs/INTERVIEW-GUIDE.md)。

@@ -78,7 +78,11 @@ void shouldAskForPageWhenExportRequirementIsVague() {
     RequirementCard card = analyzer.analyze("增加导出功能");
 
     assertThat(card.missingInformation())
-            .contains("请补充需要导出的页面或业务模块");
+            .contains("需要导出哪个业务对象？");
+
+    assertThat(card.clarificationQuestions())
+            .allMatch(question -> !question.options().isEmpty())
+            .anyMatch(ClarificationQuestion::blocking);
 
     assertThat(card.readyForPlanning()).isFalse();
 }

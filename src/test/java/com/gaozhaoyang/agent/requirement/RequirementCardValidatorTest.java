@@ -94,4 +94,69 @@ class RequirementCardValidatorTest {
         assertThat(validated.references()).isEmpty();
         assertThat(validated.readyForPlanning()).isTrue();
     }
+
+    @Test
+    void shouldOnlyUseBlockingQuestionsToDecideReadiness() {
+        RequirementCard modelResult = new RequirementCard(
+                "订单导出",
+                "订单列表增加导出",
+                List.of("订单管理"),
+                List.of("可以导出订单"),
+                List.of("导出格式是什么？"),
+                "P2",
+                List.of(),
+                List.of(),
+                List.of(new ClarificationQuestion(
+                        "其他",
+                        "导出格式是什么？",
+                        List.of("Excel", "CSV"),
+                        "Excel",
+                        false
+                )),
+                List.of(),
+                false
+        );
+
+        RequirementCard validated = validator.validate(modelResult);
+
+        assertThat(validated.readyForPlanning()).isTrue();
+        assertThat(validated.missingInformation()).isEmpty();
+        assertThat(validated.assumptions())
+                .contains("导出格式是什么？：默认采用“Excel”");
+    }
+
+    @Test
+    void shouldLimitBlockingQuestionsAndRepairRecommendationOptions() {
+        List<ClarificationQuestion> questions = java.util.stream.IntStream.rangeClosed(1, 6)
+                .mapToObj(index -> new ClarificationQuestion(
+                        "业务规则",
+                        "问题" + index,
+                        List.of("选项A", "选项B"),
+                        index == 1 ? "推荐选项" : "",
+                        true
+                ))
+                .toList();
+        RequirementCard modelResult = new RequirementCard(
+                "批量操作",
+                "批量操作需求",
+                List.of("订单管理"),
+                List.of(),
+                List.of(),
+                "P1",
+                List.of(),
+                List.of(),
+                questions,
+                List.of(),
+                false
+        );
+
+        RequirementCard validated = validator.validate(modelResult);
+
+        assertThat(validated.clarificationQuestions()).hasSize(4);
+        assertThat(validated.missingInformation()).hasSize(4);
+        assertThat(validated.clarificationQuestions().getFirst().options())
+                .contains("推荐选项");
+        assertThat(validated.clarificationQuestions().get(1).recommendedAnswer())
+                .isEqualTo("选项A");
+    }
 }
