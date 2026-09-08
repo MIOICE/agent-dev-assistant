@@ -1,11 +1,11 @@
 ---
 name: test-failure-repair
-description: Repair Java compilation or test failures from untrusted sandbox logs without widening scope or weakening verification.
+description: 根据不可信沙箱日志修复 Java 编译或测试失败，不扩大文件范围、不删除测试或削弱验证。
 allowed-tools:
   - sandbox-write
   - sandbox-test
 metadata:
-  phase: repair
+  phases: REPAIR
 ---
 
 # Test Failure Repair

@@ -199,7 +199,7 @@ class CodingTaskServiceTest {
                 workflowService,
                 generator,
                 repairer,
-                phase -> phase == com.gaozhaoyang.agent.skill.CodingSkillPhase.GENERATION
+                (phase, taskContext) -> phase == com.gaozhaoyang.agent.skill.CodingSkillPhase.GENERATION
                         ? new com.gaozhaoyang.agent.skill.SkillActivation(
                                 List.of("java-code-generation", "security-review"), "generation")
                         : new com.gaozhaoyang.agent.skill.SkillActivation(

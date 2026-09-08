@@ -235,7 +235,8 @@ public class CodingTaskService {
                     workspaceId, "", ""
             ));
 
-            SkillActivation generationSkills = skillProvider.activate(CodingSkillPhase.GENERATION);
+            SkillActivation generationSkills = skillProvider.activate(
+                    CodingSkillPhase.GENERATION, generationSkillContext(workflow));
             current = recordSkillActivation(current, generationSkills, "代码生成");
             CodePatchPlan plan = sandboxPolicy.validate(
                     patchGenerator.generate(workflow, generationSkills), current.budget());
@@ -348,7 +349,9 @@ public class CodingTaskService {
                     current.workspaceId(), "", ""
             ));
 
-            SkillActivation repairSkills = skillProvider.activate(CodingSkillPhase.REPAIR);
+            SkillActivation repairSkills = skillProvider.activate(
+                    CodingSkillPhase.REPAIR,
+                    generationSkillContext(workflow) + "\n" + verification.outputSummary());
             current = recordSkillActivation(current, repairSkills, "失败修复");
             CodePatchPlan repaired = sandboxPolicy.validate(
                     patchRepairer.repair(
@@ -451,10 +454,16 @@ public class CodingTaskService {
                 current.consumedDurationMs(), current.repairAttempts(), activatedSkills,
                 current.patches(), current.verification(), current.buildAttempts(),
                 appendEvent(current.events(), "SKILLS_ACTIVATED",
-                        phase + "阶段按需加载：" + String.join("、", activation.skillNames())),
+                        phase + "阶段按需加载：" + activation.routingSummary()),
                 current.workspaceId(), current.approvedOutputPath(), current.failureMessage(),
                 current.createdAt(), Instant.now()
         ));
+    }
+
+    private String generationSkillContext(WorkflowState workflow) {
+        return workflow.effectiveRequirement() + "\n"
+                + String.valueOf(workflow.requirementCard()) + "\n"
+                + String.valueOf(workflow.technicalSolution());
     }
 
     private CodingTask evolve(

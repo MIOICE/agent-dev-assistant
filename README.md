@@ -17,7 +17,8 @@
 - 可视化操作台：历史工作流、页面恢复、澄清、审批、驳回、重试、知识库评测。
 - Trace 与运行评测：持久化需求分析、RAG、方案生成等节点的状态、耗时和统计属性，展示首轮就绪率、平均澄清轮数、推荐值采纳率及完成率。
 - Durable Coding Agent：API 提交后立即进入有界后台队列；从已审批技术方案生成受限 Java 补丁，在无网络 Docker 沙箱中离线测试，失败时依据构建证据最多自动修复两轮，并通过文件 Checkpoint 支持服务重启恢复。
-- Agent Skills：以标准 `SKILL.md` 封装 Java 生成、失败修复和安全复核方法；启动时只索引名称与描述，生成或修复阶段命中后才将对应正文注入模型上下文，并记录任务级激活轨迹。
+- Agent Skills：以标准 `SKILL.md` 封装 Java 生成、失败修复、安全复核和导出可靠性方法；先按生成/修复阶段缩小候选集，再用本地 BGE 语义相似度按需加载正文，并记录路由分数与任务级激活轨迹。
+- Skill 供应链防护：启动时校验技能名称、阶段、宿主工具白名单、内容大小和 SHA-256 受信任清单；摘要不一致或越权声明会直接拒绝启动。
 - 安全发布：每轮修复保持文件集合不变，持续执行路径、危险能力和自治预算校验；最终通过统一 Diff、SHA-256 与二次人工审批输出独立产物。
 - 工程验证：JUnit 5、MockMvc、H2 MySQL 兼容测试和 Docker Compose。
 
@@ -199,7 +200,7 @@ Invoke-RestMethod -Uri "http://localhost:8080/api/system/status" -Method Get |
 
 ## 简历表述边界
 
-可以如实写“Spring AI、DeepSeek、本地 BGE RAG、Tool Calling、MCP Streamable HTTP Server、Agent Skills 渐进式加载、工具白名单与调用审计、结构化澄清、确定性策略校验、Agent Trace、运行评测、工作流状态机、Human-in-the-loop、MySQL 工作流持久化、文件 Checkpoint、异步后台任务、有界自动修复、受限代码补丁、统一 Diff、自治预算与 Docker 隔离验证”。当前没有真正实现 Redis、标准 OpenTelemetry Exporter、分布式任务队列、MCP 身份认证、直接修改真实仓库、生产发布和真实业务库查询，不应写成已经完成。
+可以如实写“Spring AI、DeepSeek、本地 BGE RAG、Tool Calling、MCP Streamable HTTP Server、Agent Skills 语义路由与渐进式加载、Skill SHA-256 完整性校验、工具白名单与调用审计、结构化澄清、确定性策略校验、Agent Trace、运行评测、工作流状态机、Human-in-the-loop、MySQL 工作流持久化、文件 Checkpoint、异步后台任务、有界自动修复、受限代码补丁、统一 Diff、自治预算与 Docker 隔离验证”。当前没有真正实现 Redis、标准 OpenTelemetry Exporter、分布式任务队列、MCP 身份认证、第三方 Skill 签名、直接修改真实仓库、生产发布和真实业务库查询，不应写成已经完成。
 
 本轮“业务友好澄清 Agent”的实现与面试复述见 [docs/MILESTONE-01-BUSINESS-CLARIFICATION.md](docs/MILESTONE-01-BUSINESS-CLARIFICATION.md)。
 
@@ -212,5 +213,7 @@ Agent Trace 与运行评测见 [docs/MILESTONE-02-TRACE-AND-EVALS.md](docs/MILES
 后台执行、Checkpoint 与有界自动修复见 [docs/MILESTONE-05-DURABLE-REPAIR-LOOP.md](docs/MILESTONE-05-DURABLE-REPAIR-LOOP.md)。
 
 Agent Skills 与渐进式上下文加载见 [docs/MILESTONE-06-AGENT-SKILLS.md](docs/MILESTONE-06-AGENT-SKILLS.md)。
+
+Skills 语义路由与供应链校验见 [docs/MILESTONE-07-SEMANTIC-SKILL-ROUTING.md](docs/MILESTONE-07-SEMANTIC-SKILL-ROUTING.md)。
 
 累计面试复述与追问答案见 [docs/INTERVIEW-GUIDE.md](docs/INTERVIEW-GUIDE.md)。

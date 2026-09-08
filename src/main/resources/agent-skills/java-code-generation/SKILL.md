@@ -1,11 +1,11 @@
 ---
 name: java-code-generation
-description: Generate a small Java 21 implementation and JUnit 5 tests from an approved technical plan inside the restricted coding sandbox.
+description: 根据已审批技术方案生成受限的 Java 21 业务实现与 JUnit 5 测试，适用于代码生成阶段的基础编码任务。
 allowed-tools:
   - sandbox-write
   - sandbox-test
 metadata:
-  phase: generation
+  phases: GENERATION
 ---
 
 # Java Code Generation

@@ -1,10 +1,10 @@
 ---
 name: security-review
-description: Apply a focused security review to generated Java code when inputs, authorization, sensitive data, or side effects need explicit boundaries.
+description: 当需求涉及输入校验、用户权限、敏感数据、删除写入或其他副作用时，对生成的 Java 代码执行安全复核。
 allowed-tools:
   - sandbox-read
 metadata:
-  phase: generation-and-repair
+  phases: GENERATION,REPAIR
 ---
 
 # Security Review

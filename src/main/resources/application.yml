@@ -39,6 +39,9 @@ app:
     mode: ${APP_AI_MODE:mock}
   skills:
     location-pattern: classpath*:agent-skills/*/SKILL.md
+    manifest-location: classpath:agent-skills/manifest.sha256
+    semantic-threshold: 0.42
+    max-optional-skills: 2
   workflow:
     repository: ${WORKFLOW_REPOSITORY:memory}
     mysql:

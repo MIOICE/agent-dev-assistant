@@ -20,9 +20,11 @@ class AgentSkillControllerTest {
 
         mockMvc.perform(get("/api/skills"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(3))
-                .andExpect(jsonPath("$[0].name").value("java-code-generation"))
+                .andExpect(jsonPath("$.length()").value(4))
+                .andExpect(jsonPath("$[0].name").value("export-reliability"))
                 .andExpect(jsonPath("$[0].description").isNotEmpty())
+                .andExpect(jsonPath("$[0].trusted").value(true))
+                .andExpect(jsonPath("$[0].sha256").isNotEmpty())
                 .andExpect(jsonPath("$[0].instructions").doesNotExist());
     }
 }
