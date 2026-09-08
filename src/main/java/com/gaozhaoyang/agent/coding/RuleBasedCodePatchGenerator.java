@@ -1,6 +1,7 @@
 package com.gaozhaoyang.agent.coding;
 
 import com.gaozhaoyang.agent.workflow.WorkflowState;
+import com.gaozhaoyang.agent.skill.SkillActivation;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
@@ -11,7 +12,7 @@ import java.util.List;
 public class RuleBasedCodePatchGenerator implements CodePatchGenerator {
 
     @Override
-    public CodePatchPlan generate(WorkflowState workflow) {
+    public CodePatchPlan generate(WorkflowState workflow, SkillActivation skills) {
         return new CodePatchPlan(
                 "在隔离演示工程中增加订单导出决策策略及对应单元测试，验证权限、格式和异步阈值。",
                 List.of(

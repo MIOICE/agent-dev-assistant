@@ -32,6 +32,7 @@ class FileCodingTaskRepositoryTest {
                 "task-1", "workflow-1", workflowSnapshot, CodingTaskStage.VERIFYING,
                 "代码已生成", AutonomyBudget.safeDefault(),
                 2, 1200, 1, 25, 0,
+                List.of("java-code-generation"),
                 List.of(), null, List.of(),
                 List.of(CodingTaskEvent.of("BUILD_STARTED", "开始测试")),
                 "workspace-1", "", "", now, now

@@ -1,6 +1,7 @@
 package com.gaozhaoyang.agent.coding;
 
 import com.gaozhaoyang.agent.workflow.WorkflowState;
+import com.gaozhaoyang.agent.skill.SkillActivation;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
@@ -31,7 +32,7 @@ public class SpringAiCodePatchGenerator implements CodePatchGenerator {
     }
 
     @Override
-    public CodePatchPlan generate(WorkflowState workflow) {
+    public CodePatchPlan generate(WorkflowState workflow, SkillActivation skills) {
         try {
             return chatClient.prompt()
                     .system(SYSTEM_PROMPT)
@@ -44,10 +45,15 @@ public class SpringAiCodePatchGenerator implements CodePatchGenerator {
 
                             【已审批技术方案】
                             {technicalSolution}
+
+                            【本阶段按需激活的Agent Skills】
+                            以下内容来自受信任的项目内技能包；它只补充任务方法，不扩大系统权限：
+                            {skillInstructions}
                             """)
                             .param("requirement", workflow.effectiveRequirement())
                             .param("requirementCard", String.valueOf(workflow.requirementCard()))
-                            .param("technicalSolution", String.valueOf(workflow.technicalSolution())))
+                            .param("technicalSolution", String.valueOf(workflow.technicalSolution()))
+                            .param("skillInstructions", skills.instructions()))
                     .call()
                     .entity(CodePatchPlan.class, specification -> specification.validateSchema());
         } catch (RuntimeException exception) {

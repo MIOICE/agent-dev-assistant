@@ -22,6 +22,7 @@ class CodingTaskControllerTest {
         CodingTask queued = new CodingTask(
                 "task-1", "workflow-1", null, CodingTaskStage.QUEUED, "",
                 AutonomyBudget.safeDefault(), 0, 0, 0, 0, 0,
+                List.of(),
                 List.of(), null, List.of(), List.of(),
                 "", "", "", now, now
         );

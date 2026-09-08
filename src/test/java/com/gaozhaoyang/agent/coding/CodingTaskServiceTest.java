@@ -26,7 +26,7 @@ class CodingTaskServiceTest {
         CodingTaskService service = service(
                 root,
                 passedRunner(),
-                (workflow, plan, failure, attempt) -> plan,
+                (workflow, plan, failure, attempt, skills) -> plan,
                 WorkflowStage.COMPLETED,
                 new InMemoryCodingTaskRepository(),
                 Runnable::run
@@ -37,6 +37,8 @@ class CodingTaskServiceTest {
         assertThat(generated.stage()).isEqualTo(CodingTaskStage.WAITING_APPROVAL);
         assertThat(generated.patches()).hasSize(2);
         assertThat(generated.consumedBuildExecutions()).isEqualTo(1);
+        assertThat(generated.activatedSkills())
+                .containsExactly("java-code-generation", "security-review");
         assertThat(generated.buildAttempts()).hasSize(1);
         assertThat(generated.patches())
                 .allSatisfy(patch -> assertThat(patch.unifiedDiff()).contains("+++ b/"));
@@ -59,7 +61,7 @@ class CodingTaskServiceTest {
             int call = buildCalls.incrementAndGet();
             return verification(call > 1, call > 1 ? "tests passed" : "compile failed");
         };
-        CodePatchRepairer repairer = (workflow, plan, failure, attempt) -> {
+        CodePatchRepairer repairer = (workflow, plan, failure, attempt, skills) -> {
             repairCalls.incrementAndGet();
             return new CodePatchPlan("自动修复后的代码方案", plan.files());
         };
@@ -72,6 +74,8 @@ class CodingTaskServiceTest {
         assertThat(task.stage()).isEqualTo(CodingTaskStage.WAITING_APPROVAL);
         assertThat(task.consumedBuildExecutions()).isEqualTo(2);
         assertThat(task.repairAttempts()).isEqualTo(1);
+        assertThat(task.activatedSkills()).containsExactly(
+                "java-code-generation", "security-review", "test-failure-repair");
         assertThat(task.buildAttempts()).hasSize(2);
         assertThat(task.buildAttempts().getFirst().verification().passed()).isFalse();
         assertThat(task.buildAttempts().getLast().verification().passed()).isTrue();
@@ -84,7 +88,7 @@ class CodingTaskServiceTest {
     void shouldStopAfterAutonomyBudgetIsExhausted() {
         Path root = testRoot();
         AtomicInteger repairCalls = new AtomicInteger();
-        CodePatchRepairer repairer = (workflow, plan, failure, attempt) -> {
+        CodePatchRepairer repairer = (workflow, plan, failure, attempt, skills) -> {
             repairCalls.incrementAndGet();
             return plan;
         };
@@ -115,7 +119,7 @@ class CodingTaskServiceTest {
         Path root = testRoot();
         CapturingTaskExecutor executor = new CapturingTaskExecutor();
         CodingTaskService service = service(
-                root, passedRunner(), (workflow, plan, failure, attempt) -> plan,
+                root, passedRunner(), (workflow, plan, failure, attempt, skills) -> plan,
                 WorkflowStage.COMPLETED, new InMemoryCodingTaskRepository(), executor);
 
         CodingTask queued = service.submit("workflow-1");
@@ -138,6 +142,7 @@ class CodingTaskServiceTest {
                 CodingTaskStage.REPAIRING,
                 "等待恢复", AutonomyBudget.safeDefault(),
                 2, 1000, 1, 20, 1,
+                List.of("java-code-generation"),
                 List.of(), verification(false, "previous failure"),
                 List.of(new BuildAttempt(1, verification(false, "previous failure"), now)),
                 List.of(CodingTaskEvent.of("REPAIR_STARTED", "服务关闭前正在修复")),
@@ -145,7 +150,7 @@ class CodingTaskServiceTest {
         );
         repository.save(interrupted);
         CodingTaskService service = service(
-                root, passedRunner(), (workflow, plan, failure, attempt) -> plan,
+                root, passedRunner(), (workflow, plan, failure, attempt, skills) -> plan,
                 WorkflowStage.COMPLETED, repository, Runnable::run);
 
         service.recoverInterruptedTasks();
@@ -163,7 +168,7 @@ class CodingTaskServiceTest {
     void shouldRequireApprovedTechnicalWorkflow() {
         Path root = testRoot();
         CodingTaskService service = service(
-                root, passedRunner(), (workflow, plan, failure, attempt) -> plan,
+                root, passedRunner(), (workflow, plan, failure, attempt, skills) -> plan,
                 WorkflowStage.WAITING_APPROVAL,
                 new InMemoryCodingTaskRepository(), Runnable::run);
 
@@ -185,8 +190,8 @@ class CodingTaskServiceTest {
         when(workflowService.get("workflow-1")).thenReturn(workflow);
         when(workflow.stage()).thenReturn(stage);
 
-        CodePatchGenerator generator = ignored ->
-                new RuleBasedCodePatchGenerator().generate(ignored);
+        CodePatchGenerator generator = (ignored, skills) ->
+                new RuleBasedCodePatchGenerator().generate(ignored, skills);
         Path sandbox = root.resolve("sandboxes");
         Path approved = root.resolve("approved");
         assertThat(Files.notExists(sandbox)).isTrue();
@@ -194,6 +199,11 @@ class CodingTaskServiceTest {
                 workflowService,
                 generator,
                 repairer,
+                phase -> phase == com.gaozhaoyang.agent.skill.CodingSkillPhase.GENERATION
+                        ? new com.gaozhaoyang.agent.skill.SkillActivation(
+                                List.of("java-code-generation", "security-review"), "generation")
+                        : new com.gaozhaoyang.agent.skill.SkillActivation(
+                                List.of("test-failure-repair", "security-review"), "repair"),
                 new SandboxPolicy(),
                 new SandboxProjectTemplate(),
                 runner,

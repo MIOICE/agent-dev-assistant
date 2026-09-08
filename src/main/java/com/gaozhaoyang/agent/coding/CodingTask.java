@@ -17,6 +17,7 @@ public record CodingTask(
         int consumedBuildExecutions,
         long consumedDurationMs,
         int repairAttempts,
+        List<String> activatedSkills,
         List<PatchFile> patches,
         BuildVerification verification,
         List<BuildAttempt> buildAttempts,
@@ -28,6 +29,7 @@ public record CodingTask(
         Instant updatedAt
 ) {
     public CodingTask {
+        activatedSkills = activatedSkills == null ? List.of() : List.copyOf(activatedSkills);
         patches = patches == null ? List.of() : List.copyOf(patches);
         buildAttempts = buildAttempts == null ? List.of() : List.copyOf(buildAttempts);
         events = events == null ? List.of() : List.copyOf(events);

@@ -1,5 +1,8 @@
 package com.gaozhaoyang.agent.coding;
 
+import com.gaozhaoyang.agent.skill.CodingSkillPhase;
+import com.gaozhaoyang.agent.skill.CodingSkillProvider;
+import com.gaozhaoyang.agent.skill.SkillActivation;
 import com.gaozhaoyang.agent.workflow.RequirementWorkflowService;
 import com.gaozhaoyang.agent.workflow.WorkflowStage;
 import com.gaozhaoyang.agent.workflow.WorkflowState;
@@ -48,6 +51,7 @@ public class CodingTaskService {
     private final RequirementWorkflowService workflowService;
     private final CodePatchGenerator patchGenerator;
     private final CodePatchRepairer patchRepairer;
+    private final CodingSkillProvider skillProvider;
     private final SandboxPolicy sandboxPolicy;
     private final SandboxProjectTemplate projectTemplate;
     private final SandboxBuildRunner buildRunner;
@@ -62,6 +66,7 @@ public class CodingTaskService {
             RequirementWorkflowService workflowService,
             CodePatchGenerator patchGenerator,
             CodePatchRepairer patchRepairer,
+            CodingSkillProvider skillProvider,
             SandboxPolicy sandboxPolicy,
             SandboxProjectTemplate projectTemplate,
             SandboxBuildRunner buildRunner,
@@ -74,6 +79,7 @@ public class CodingTaskService {
         this.workflowService = workflowService;
         this.patchGenerator = patchGenerator;
         this.patchRepairer = patchRepairer;
+        this.skillProvider = skillProvider;
         this.sandboxPolicy = sandboxPolicy;
         this.projectTemplate = projectTemplate;
         this.buildRunner = buildRunner;
@@ -99,6 +105,7 @@ public class CodingTaskService {
         CodingTask queued = new CodingTask(
                 taskId, workflowId, workflow, CodingTaskStage.QUEUED, "",
                 AutonomyBudget.safeDefault(), 0, 0, 0, 0, 0,
+                List.of(),
                 List.of(), null, List.of(),
                 List.of(CodingTaskEvent.of("QUEUED", "代码任务已进入后台执行队列")),
                 "", "", "", now, now
@@ -228,8 +235,10 @@ public class CodingTaskService {
                     workspaceId, "", ""
             ));
 
+            SkillActivation generationSkills = skillProvider.activate(CodingSkillPhase.GENERATION);
+            current = recordSkillActivation(current, generationSkills, "代码生成");
             CodePatchPlan plan = sandboxPolicy.validate(
-                    patchGenerator.generate(workflow), current.budget());
+                    patchGenerator.generate(workflow, generationSkills), current.budget());
             Path workspace = prepareTaskDirectory(sandboxRoot, workspaceId);
             projectTemplate.initialize(workspace);
             List<PatchFile> patches = writeGeneratedFiles(workspace, plan.files(), Map.of());
@@ -339,8 +348,11 @@ public class CodingTaskService {
                     current.workspaceId(), "", ""
             ));
 
+            SkillActivation repairSkills = skillProvider.activate(CodingSkillPhase.REPAIR);
+            current = recordSkillActivation(current, repairSkills, "失败修复");
             CodePatchPlan repaired = sandboxPolicy.validate(
-                    patchRepairer.repair(workflow, plan, verification, repairNumber),
+                    patchRepairer.repair(
+                            workflow, plan, verification, repairNumber, repairSkills),
                     current.budget()
             );
             ensureSamePaths(plan, repaired);
@@ -421,6 +433,30 @@ public class CodingTaskService {
         ));
     }
 
+    private CodingTask recordSkillActivation(
+            CodingTask current,
+            SkillActivation activation,
+            String phase
+    ) {
+        List<String> activatedSkills = new ArrayList<>(current.activatedSkills());
+        for (String name : activation.skillNames()) {
+            if (!activatedSkills.contains(name)) {
+                activatedSkills.add(name);
+            }
+        }
+        return taskRepository.save(new CodingTask(
+                current.taskId(), current.workflowId(), current.workflowSnapshot(), current.stage(),
+                current.summary(), current.budget(), current.consumedFiles(),
+                current.consumedBytes(), current.consumedBuildExecutions(),
+                current.consumedDurationMs(), current.repairAttempts(), activatedSkills,
+                current.patches(), current.verification(), current.buildAttempts(),
+                appendEvent(current.events(), "SKILLS_ACTIVATED",
+                        phase + "阶段按需加载：" + String.join("、", activation.skillNames())),
+                current.workspaceId(), current.approvedOutputPath(), current.failureMessage(),
+                current.createdAt(), Instant.now()
+        ));
+    }
+
     private CodingTask evolve(
             CodingTask base,
             CodingTaskStage stage,
@@ -442,7 +478,7 @@ public class CodingTaskService {
                 base.taskId(), base.workflowId(), base.workflowSnapshot(), stage,
                 summary, base.budget(),
                 consumedFiles, consumedBytes, consumedBuildExecutions,
-                consumedDurationMs, repairAttempts, patches, verification,
+                consumedDurationMs, repairAttempts, base.activatedSkills(), patches, verification,
                 buildAttempts, events, workspaceId, approvedOutputPath, failureMessage,
                 base.createdAt(), Instant.now()
         );

@@ -1,6 +1,7 @@
 package com.gaozhaoyang.agent.coding;
 
 import com.gaozhaoyang.agent.workflow.WorkflowState;
+import com.gaozhaoyang.agent.skill.SkillActivation;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
@@ -13,7 +14,8 @@ public class RuleBasedCodePatchRepairer implements CodePatchRepairer {
             WorkflowState workflow,
             CodePatchPlan previousPlan,
             BuildVerification failedVerification,
-            int repairAttempt
+            int repairAttempt,
+            SkillActivation skills
     ) {
         // mock模式的初始代码本来就可以通过。这里保持确定性，便于演示有界循环。
         return previousPlan;

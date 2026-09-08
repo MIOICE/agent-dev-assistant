@@ -37,6 +37,8 @@ spring:
 app:
   ai:
     mode: ${APP_AI_MODE:mock}
+  skills:
+    location-pattern: classpath*:agent-skills/*/SKILL.md
   workflow:
     repository: ${WORKFLOW_REPOSITORY:memory}
     mysql:
