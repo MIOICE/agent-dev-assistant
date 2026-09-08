@@ -7,6 +7,6 @@ public record AutonomyBudget(
         long maxDurationMs
 ) {
     public static AutonomyBudget safeDefault() {
-        return new AutonomyBudget(6, 100_000, 1, 60_000);
+        return new AutonomyBudget(6, 100_000, 3, 180_000);
     }
 }

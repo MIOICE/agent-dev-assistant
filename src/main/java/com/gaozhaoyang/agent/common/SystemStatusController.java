@@ -14,6 +14,7 @@ public class SystemStatusController {
     private final String model;
     private final String apiKey;
     private final String workflowRepository;
+    private final String codingTaskRepository;
     private final String embeddingModel;
 
     public SystemStatusController(
@@ -22,6 +23,7 @@ public class SystemStatusController {
             @Value("${spring.ai.openai.chat.options.model:未配置}") String model,
             @Value("${DEEPSEEK_API_KEY:}") String apiKey,
             @Value("${app.workflow.repository}") String workflowRepository,
+            @Value("${app.coding.repository}") String codingTaskRepository,
             @Value("${app.embedding.model-uri}") String embeddingModel
     ) {
         this.application = application;
@@ -29,6 +31,7 @@ public class SystemStatusController {
         this.model = model;
         this.apiKey = apiKey;
         this.workflowRepository = workflowRepository;
+        this.codingTaskRepository = codingTaskRepository;
         this.embeddingModel = embeddingModel;
     }
 
@@ -41,6 +44,7 @@ public class SystemStatusController {
                 "deepseek".equalsIgnoreCase(aiMode) ? model : "规则引擎（演示模式）",
                 credentialConfigured,
                 workflowRepository,
+                codingTaskRepository,
                 shortEmbeddingName(embeddingModel),
                 "UP"
         );

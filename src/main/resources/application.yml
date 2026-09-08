@@ -44,9 +44,14 @@ app:
       username: ${WORKFLOW_MYSQL_USERNAME:agent_app}
       password: ${WORKFLOW_MYSQL_PASSWORD:}
   coding:
+    repository: ${CODING_TASK_REPOSITORY:file}
+    checkpoint-root: ${CODING_CHECKPOINT_ROOT:F:/agent-workspaces/checkpoints}
     sandbox-root: ${CODING_SANDBOX_ROOT:F:/agent-workspaces/sandboxes}
     approved-root: ${CODING_APPROVED_ROOT:F:/agent-workspaces/approved}
     maven-repository: ${CODING_MAVEN_REPOSITORY:F:/dev/ide/apache-maven-3.9.9/mvn_repo}
+    executor:
+      core-pool-size: ${CODING_EXECUTOR_THREADS:2}
+      queue-capacity: ${CODING_EXECUTOR_QUEUE_CAPACITY:20}
   embedding:
     tokenizer-uri: file:F:/ai-models/bge-small-zh-v1.5/tokenizer.json
     model-uri: file:F:/ai-models/bge-small-zh-v1.5/model_optimized.onnx

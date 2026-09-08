@@ -29,6 +29,10 @@ services:
       WORKFLOW_MYSQL_URL: jdbc:mysql://mysql:3306/agent_dev_assistant?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
       WORKFLOW_MYSQL_USERNAME: agent_app
       WORKFLOW_MYSQL_PASSWORD: ${WORKFLOW_MYSQL_PASSWORD:-change_me_app}
+      CODING_TASK_REPOSITORY: file
+      CODING_CHECKPOINT_ROOT: /data/coding/checkpoints
+      CODING_SANDBOX_ROOT: /data/coding/sandboxes
+      CODING_APPROVED_ROOT: /data/coding/approved
       APP_EMBEDDING_TOKENIZER_URI: file:/models/bge-small-zh-v1.5/tokenizer.json
       APP_EMBEDDING_MODEL_URI: file:/models/bge-small-zh-v1.5/model_optimized.onnx
       EMBEDDING_CACHE_DIRECTORY: /cache/spring-ai
@@ -38,7 +42,9 @@ services:
     volumes:
       - ${BGE_MODEL_DIRECTORY:-F:/ai-models/bge-small-zh-v1.5}:/models/bge-small-zh-v1.5:ro
       - agent_model_cache:/cache
+      - agent_coding_data:/data/coding
 
 volumes:
   agent_mysql_data:
   agent_model_cache:
+  agent_coding_data:

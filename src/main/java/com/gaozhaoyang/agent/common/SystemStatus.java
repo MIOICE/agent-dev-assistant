@@ -6,6 +6,7 @@ public record SystemStatus(
         String model,
         boolean modelCredentialConfigured,
         String workflowRepository,
+        String codingTaskRepository,
         String embeddingModel,
         String status
 ) {

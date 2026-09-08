@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.ResponseEntity;
 
 @RestController
 @RequestMapping("/api/coding-tasks")
@@ -20,8 +21,8 @@ public class CodingTaskController {
     }
 
     @PostMapping
-    public CodingTask create(@RequestParam String workflowId) {
-        return codingTaskService.create(workflowId);
+    public ResponseEntity<CodingTask> create(@RequestParam String workflowId) {
+        return ResponseEntity.accepted().body(codingTaskService.submit(workflowId));
     }
 
     @GetMapping("/{taskId}")

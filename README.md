@@ -16,7 +16,8 @@
 - 持久化：内存 / MySQL 可切换，工作流列表、阶段筛选、版本号和事件时间线。
 - 可视化操作台：历史工作流、页面恢复、澄清、审批、驳回、重试、知识库评测。
 - Trace 与运行评测：持久化需求分析、RAG、方案生成等节点的状态、耗时和统计属性，展示首轮就绪率、平均澄清轮数、推荐值采纳率及完成率。
-- 安全编码任务：从已审批技术方案生成受限 Java 补丁和统一 Diff，在无网络 Docker 沙箱中离线运行 Maven 测试，并经二次人工审批输出独立产物。
+- Durable Coding Agent：API 提交后立即进入有界后台队列；从已审批技术方案生成受限 Java 补丁，在无网络 Docker 沙箱中离线测试，失败时依据构建证据最多自动修复两轮，并通过文件 Checkpoint 支持服务重启恢复。
+- 安全发布：每轮修复保持文件集合不变，持续执行路径、危险能力和自治预算校验；最终通过统一 Diff、SHA-256 与二次人工审批输出独立产物。
 - 工程验证：JUnit 5、MockMvc、H2 MySQL 兼容测试和 Docker Compose。
 
 详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
@@ -30,6 +31,7 @@ src/main/java/com/gaozhaoyang/agent
 ├─ solution/      技术方案生成
 ├─ tool/          Spring AI 工具调用
 ├─ workflow/      状态机、审批闭环与持久化
+├─ coding/        异步代码任务、Checkpoint、有界修复与沙箱验证
 └─ common/        统一异常与运行状态
 ```
 
@@ -186,14 +188,15 @@ Invoke-RestMethod -Uri "http://localhost:8080/api/system/status" -Method Get |
 | POST | `/api/mcp` | MCP Streamable HTTP 协议入口 |
 | GET | `/api/tools/status` | 查看 MCP 暴露边界和工具策略 |
 | GET | `/api/tools/audits` | 查看最近工具调用审计 |
-| POST | `/api/coding-tasks?workflowId=...` | 为已审批工作流生成并验证代码补丁 |
+| POST | `/api/coding-tasks?workflowId=...` | 提交后台代码任务，返回 HTTP 202 与当前快照 |
+| GET | `/api/coding-tasks/{taskId}` | 轮询后台阶段、Checkpoint、修复与构建记录 |
 | GET | `/api/coding-tasks/workflow/{workflowId}` | 查询工作流对应的代码任务 |
 | POST | `/api/coding-tasks/{taskId}/approval` | 人工批准测试通过的代码产物 |
 | GET | `/api/system/status` | 查看模型与仓库运行模式 |
 
 ## 简历表述边界
 
-可以如实写“Spring AI、DeepSeek、本地 BGE RAG、Tool Calling、MCP Streamable HTTP Server、工具白名单与调用审计、结构化澄清、确定性策略校验、Agent Trace、运行评测、工作流状态机、Human-in-the-loop、MySQL 快照持久化、受限代码补丁、统一 Diff、自治预算与 Docker 隔离验证”。当前没有真正实现 Redis、标准 OpenTelemetry Exporter、MCP 身份认证、直接修改真实仓库、生产发布和真实业务库查询，不应写成已经完成。
+可以如实写“Spring AI、DeepSeek、本地 BGE RAG、Tool Calling、MCP Streamable HTTP Server、工具白名单与调用审计、结构化澄清、确定性策略校验、Agent Trace、运行评测、工作流状态机、Human-in-the-loop、MySQL 工作流持久化、文件 Checkpoint、异步后台任务、有界自动修复、受限代码补丁、统一 Diff、自治预算与 Docker 隔离验证”。当前没有真正实现 Redis、标准 OpenTelemetry Exporter、分布式任务队列、MCP 身份认证、直接修改真实仓库、生产发布和真实业务库查询，不应写成已经完成。
 
 本轮“业务友好澄清 Agent”的实现与面试复述见 [docs/MILESTONE-01-BUSINESS-CLARIFICATION.md](docs/MILESTONE-01-BUSINESS-CLARIFICATION.md)。
 
@@ -202,5 +205,7 @@ Agent Trace 与运行评测见 [docs/MILESTONE-02-TRACE-AND-EVALS.md](docs/MILES
 标准 MCP Server 与工具治理见 [docs/MILESTONE-03-MCP-TOOL-GOVERNANCE.md](docs/MILESTONE-03-MCP-TOOL-GOVERNANCE.md)。
 
 安全代码工作区与自治预算见 [docs/MILESTONE-04-SAFE-CODING-SANDBOX.md](docs/MILESTONE-04-SAFE-CODING-SANDBOX.md)。
+
+后台执行、Checkpoint 与有界自动修复见 [docs/MILESTONE-05-DURABLE-REPAIR-LOOP.md](docs/MILESTONE-05-DURABLE-REPAIR-LOOP.md)。
 
 累计面试复述与追问答案见 [docs/INTERVIEW-GUIDE.md](docs/INTERVIEW-GUIDE.md)。

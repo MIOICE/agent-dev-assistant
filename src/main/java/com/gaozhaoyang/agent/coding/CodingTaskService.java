@@ -3,7 +3,11 @@ package com.gaozhaoyang.agent.coding;
 import com.gaozhaoyang.agent.workflow.RequirementWorkflowService;
 import com.gaozhaoyang.agent.workflow.WorkflowStage;
 import com.gaozhaoyang.agent.workflow.WorkflowState;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -15,49 +19,72 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class CodingTaskService {
 
+    private static final long MAX_SINGLE_BUILD_DURATION_MS = 60_000;
+    private static final Set<CodingTaskStage> RECOVERABLE_STAGES = Set.of(
+            CodingTaskStage.QUEUED,
+            CodingTaskStage.GENERATING,
+            CodingTaskStage.VERIFYING,
+            CodingTaskStage.REPAIRING
+    );
+    private static final Set<CodingTaskStage> TERMINAL_OR_PAUSED_STAGES = Set.of(
+            CodingTaskStage.WAITING_APPROVAL,
+            CodingTaskStage.PUBLISHED,
+            CodingTaskStage.FAILED
+    );
+
     private final RequirementWorkflowService workflowService;
     private final CodePatchGenerator patchGenerator;
+    private final CodePatchRepairer patchRepairer;
     private final SandboxPolicy sandboxPolicy;
     private final SandboxProjectTemplate projectTemplate;
     private final SandboxBuildRunner buildRunner;
     private final UnifiedDiffRenderer diffRenderer;
+    private final CodingTaskRepository taskRepository;
+    private final TaskExecutor taskExecutor;
     private final Path sandboxRoot;
     private final Path approvedRoot;
-    private final Map<String, CodingTask> tasks = new ConcurrentHashMap<>();
-    private final Map<String, Path> taskWorkspaces = new ConcurrentHashMap<>();
+    private final Set<String> runningTaskIds = ConcurrentHashMap.newKeySet();
 
     public CodingTaskService(
             RequirementWorkflowService workflowService,
             CodePatchGenerator patchGenerator,
+            CodePatchRepairer patchRepairer,
             SandboxPolicy sandboxPolicy,
             SandboxProjectTemplate projectTemplate,
             SandboxBuildRunner buildRunner,
             UnifiedDiffRenderer diffRenderer,
+            CodingTaskRepository taskRepository,
+            @Qualifier("codingTaskExecutor") TaskExecutor taskExecutor,
             @Value("${app.coding.sandbox-root}") String sandboxRoot,
             @Value("${app.coding.approved-root}") String approvedRoot
     ) {
         this.workflowService = workflowService;
         this.patchGenerator = patchGenerator;
+        this.patchRepairer = patchRepairer;
         this.sandboxPolicy = sandboxPolicy;
         this.projectTemplate = projectTemplate;
         this.buildRunner = buildRunner;
         this.diffRenderer = diffRenderer;
+        this.taskRepository = taskRepository;
+        this.taskExecutor = taskExecutor;
         this.sandboxRoot = configuredRoot(sandboxRoot, "沙箱");
         this.approvedRoot = configuredRoot(approvedRoot, "批准产物");
     }
 
-    public CodingTask create(String workflowId) {
+    public synchronized CodingTask submit(String workflowId) {
         Optional<CodingTask> existing = findByWorkflowId(workflowId);
         if (existing.isPresent() && existing.get().stage() != CodingTaskStage.FAILED) {
             return existing.get();
@@ -69,84 +96,48 @@ public class CodingTaskService {
 
         String taskId = UUID.randomUUID().toString();
         Instant now = Instant.now();
-        AutonomyBudget budget = AutonomyBudget.safeDefault();
-        List<CodingTaskEvent> events = new ArrayList<>();
-        events.add(CodingTaskEvent.of("CREATED", "代码任务已创建，开始生成受限补丁"));
-        CodingTask initial = new CodingTask(
-                taskId, workflowId, CodingTaskStage.GENERATING, "", budget,
-                0, 0, 0, List.of(), null, events,
-                "", "", now, now
+        CodingTask queued = new CodingTask(
+                taskId, workflowId, workflow, CodingTaskStage.QUEUED, "",
+                AutonomyBudget.safeDefault(), 0, 0, 0, 0, 0,
+                List.of(), null, List.of(),
+                List.of(CodingTaskEvent.of("QUEUED", "代码任务已进入后台执行队列")),
+                "", "", "", now, now
         );
-        tasks.put(taskId, initial);
+        taskRepository.save(queued);
+        dispatch(taskId);
+        return get(taskId);
+    }
 
-        String summary = "";
-        List<PatchFile> generatedPatches = List.of();
-        long generatedBytes = 0;
-        int buildExecutions = 0;
+    /** 保留旧调用入口；现在的语义已经变为提交后台任务。 */
+    public CodingTask create(String workflowId) {
+        return submit(workflowId);
+    }
 
-        try {
-            CodePatchPlan plan = sandboxPolicy.validate(
-                    patchGenerator.generate(workflow), budget);
-            summary = plan.summary();
-            Path workspace = prepareTaskDirectory(sandboxRoot, taskId);
-            taskWorkspaces.put(taskId, workspace);
-            projectTemplate.initialize(workspace);
-            generatedPatches = writeGeneratedFiles(workspace, plan.files());
-            generatedBytes = generatedPatches.stream().mapToLong(PatchFile::bytes).sum();
-            events.add(CodingTaskEvent.of(
-                    "PATCH_GENERATED",
-                    "生成并校验 " + generatedPatches.size() + " 个文件，共 "
-                            + generatedBytes + " 字节"
-            ));
-            events.add(CodingTaskEvent.of(
-                    "BUILD_STARTED",
-                    "在无网络、只读根文件系统的Docker沙箱中执行一次Maven测试"
-            ));
-            buildExecutions = 1;
-            BuildVerification verification = buildRunner.verify(workspace, budget);
-            CodingTaskStage stage = verification.passed()
-                    ? CodingTaskStage.WAITING_APPROVAL
-                    : CodingTaskStage.FAILED;
-            events.add(CodingTaskEvent.of(
-                    verification.passed() ? "BUILD_PASSED" : "BUILD_FAILED",
-                    verification.passed()
-                            ? "自动化测试通过，等待人工批准产物"
-                            : "自动化测试未通过，禁止发布产物"
-            ));
-            CodingTask completed = new CodingTask(
-                    taskId, workflowId, stage, summary, budget,
-                    generatedPatches.size(), generatedBytes, buildExecutions,
-                    generatedPatches, verification,
-                    events, "",
-                    verification.passed() ? "" : "自动化测试未通过",
-                    now, Instant.now()
+    @EventListener(ApplicationReadyEvent.class)
+    public void recoverInterruptedTasks() {
+        for (CodingTask interrupted : taskRepository.findByStages(RECOVERABLE_STAGES)) {
+            CodingTask queued = evolve(
+                    interrupted, CodingTaskStage.QUEUED, interrupted.summary(),
+                    interrupted.consumedFiles(), interrupted.consumedBytes(),
+                    interrupted.consumedBuildExecutions(), interrupted.consumedDurationMs(),
+                    interrupted.repairAttempts(), interrupted.patches(),
+                    interrupted.verification(), interrupted.buildAttempts(),
+                    appendEvent(interrupted.events(), "RECOVERED",
+                            "检测到未完成Checkpoint，任务重新进入队列"),
+                    "", "", ""
             );
-            tasks.put(taskId, completed);
-            return completed;
-        } catch (IOException exception) {
-            return fail(initial, events, "沙箱文件操作失败", summary,
-                    generatedPatches, generatedBytes, buildExecutions);
-        } catch (CodingTaskException exception) {
-            return fail(initial, events, exception.getMessage(), summary,
-                    generatedPatches, generatedBytes, buildExecutions);
-        } catch (RuntimeException exception) {
-            return fail(initial, events, "代码任务执行失败", summary,
-                    generatedPatches, generatedBytes, buildExecutions);
+            taskRepository.save(queued);
+            dispatch(queued.taskId());
         }
     }
 
     public CodingTask get(String taskId) {
-        CodingTask task = tasks.get(taskId);
-        if (task == null) {
-            throw new CodingTaskException("代码任务不存在：" + taskId);
-        }
-        return task;
+        return taskRepository.findById(taskId)
+                .orElseThrow(() -> new CodingTaskException("代码任务不存在：" + taskId));
     }
 
     public Optional<CodingTask> findByWorkflowId(String workflowId) {
-        return tasks.values().stream()
-                .filter(task -> task.workflowId().equals(workflowId))
-                .max(Comparator.comparing(CodingTask::createdAt));
+        return taskRepository.findLatestByWorkflowId(workflowId);
     }
 
     public CodingTask approve(String taskId, String comment) {
@@ -156,8 +147,11 @@ public class CodingTaskService {
                 || !current.verification().passed()) {
             throw new CodingTaskException("只有测试通过并等待审批的代码任务可以发布");
         }
-        Path workspace = taskWorkspaces.get(taskId);
-        if (workspace == null) {
+        if (current.workspaceId().isBlank()) {
+            throw new CodingTaskException("代码任务的沙箱工作区不存在");
+        }
+        Path workspace = sandboxPolicy.resolveContained(sandboxRoot, current.workspaceId());
+        if (!Files.isDirectory(workspace)) {
             throw new CodingTaskException("代码任务的沙箱工作区不存在");
         }
 
@@ -175,70 +169,293 @@ public class CodingTaskService {
                 Files.createDirectories(target.getParent());
                 Files.copy(source, target, StandardCopyOption.COPY_ATTRIBUTES);
             }
-            List<CodingTaskEvent> events = new ArrayList<>(current.events());
             String normalizedComment = comment == null ? "" : comment.trim();
-            events.add(CodingTaskEvent.of(
-                    "PUBLISHED",
-                    normalizedComment.isBlank()
-                            ? "人工审批通过，产物已复制到批准目录"
-                            : "人工审批通过：" + normalizedComment
+            return taskRepository.save(evolve(
+                    current, CodingTaskStage.PUBLISHED, current.summary(),
+                    current.consumedFiles(), current.consumedBytes(),
+                    current.consumedBuildExecutions(), current.consumedDurationMs(),
+                    current.repairAttempts(), current.patches(), current.verification(),
+                    current.buildAttempts(), appendEvent(current.events(), "PUBLISHED",
+                            normalizedComment.isBlank()
+                                    ? "人工审批通过，产物已复制到批准目录"
+                                    : "人工审批通过：" + normalizedComment),
+                    current.workspaceId(), output.toString(), ""
             ));
-            CodingTask published = new CodingTask(
-                    current.taskId(), current.workflowId(), CodingTaskStage.PUBLISHED,
-                    current.summary(), current.budget(), current.consumedFiles(),
-                    current.consumedBytes(), current.consumedBuildExecutions(),
-                    current.patches(), current.verification(), events,
-                    output.toString(), "", current.createdAt(), Instant.now()
-            );
-            tasks.put(taskId, published);
-            return published;
         } catch (IOException exception) {
             throw new CodingTaskException("批准产物写入失败", exception);
         }
     }
 
+    private void dispatch(String taskId) {
+        try {
+            taskExecutor.execute(() -> process(taskId));
+        } catch (RuntimeException exception) {
+            CodingTask current = get(taskId);
+            fail(current, "后台执行队列已满，请稍后重新提交", current.verification());
+        }
+    }
+
+    private void process(String taskId) {
+        if (!runningTaskIds.add(taskId)) {
+            return;
+        }
+        CodingTask current = get(taskId);
+        try {
+            if (TERMINAL_OR_PAUSED_STAGES.contains(current.stage())) {
+                return;
+            }
+            WorkflowState workflow = current.workflowSnapshot() != null
+                    ? current.workflowSnapshot()
+                    : workflowService.get(current.workflowId());
+            if (workflow.stage() != WorkflowStage.COMPLETED) {
+                fail(current, "关联技术方案不再是已审批状态，停止代码任务", null);
+                return;
+            }
+            if (current.consumedBuildExecutions() >= current.budget().maxBuildExecutions()
+                    || current.consumedDurationMs() >= current.budget().maxDurationMs()) {
+                fail(current, "恢复任务时发现自治预算已经耗尽", current.verification());
+                return;
+            }
+
+            String workspaceId = taskId + "-run-" + UUID.randomUUID();
+            current = taskRepository.save(evolve(
+                    current, CodingTaskStage.GENERATING, current.summary(),
+                    current.consumedFiles(), current.consumedBytes(),
+                    current.consumedBuildExecutions(), current.consumedDurationMs(),
+                    current.repairAttempts(), current.patches(), current.verification(),
+                    current.buildAttempts(), appendEvent(current.events(), "EXECUTION_STARTED",
+                            "后台工作线程开始生成代码补丁"),
+                    workspaceId, "", ""
+            ));
+
+            CodePatchPlan plan = sandboxPolicy.validate(
+                    patchGenerator.generate(workflow), current.budget());
+            Path workspace = prepareTaskDirectory(sandboxRoot, workspaceId);
+            projectTemplate.initialize(workspace);
+            List<PatchFile> patches = writeGeneratedFiles(workspace, plan.files(), Map.of());
+            long bytes = patches.stream().mapToLong(PatchFile::bytes).sum();
+            current = taskRepository.save(evolve(
+                    current, CodingTaskStage.VERIFYING, plan.summary(),
+                    patches.size(), bytes, current.consumedBuildExecutions(),
+                    current.consumedDurationMs(), current.repairAttempts(), patches,
+                    current.verification(), current.buildAttempts(),
+                    appendEvent(current.events(), "PATCH_GENERATED",
+                            "生成并校验 " + patches.size() + " 个文件，共 " + bytes + " 字节"),
+                    workspaceId, "", ""
+            ));
+
+            executeRepairLoop(current, workflow, workspace, plan);
+        } catch (IOException exception) {
+            CodingTask latest = taskRepository.findById(taskId).orElse(current);
+            fail(latest, "沙箱文件操作失败", latest.verification());
+        } catch (CodingTaskException exception) {
+            CodingTask latest = taskRepository.findById(taskId).orElse(current);
+            fail(latest, exception.getMessage(), latest.verification());
+        } catch (RuntimeException exception) {
+            CodingTask latest = taskRepository.findById(taskId).orElse(current);
+            fail(latest, "代码任务执行失败", latest.verification());
+        } finally {
+            runningTaskIds.remove(taskId);
+        }
+    }
+
+    private void executeRepairLoop(
+            CodingTask startingTask,
+            WorkflowState workflow,
+            Path workspace,
+            CodePatchPlan startingPlan
+    ) throws IOException {
+        CodingTask current = startingTask;
+        CodePatchPlan plan = startingPlan;
+
+        while (true) {
+            long remainingDuration = current.budget().maxDurationMs()
+                    - current.consumedDurationMs();
+            if (remainingDuration <= 0
+                    || current.consumedBuildExecutions()
+                    >= current.budget().maxBuildExecutions()) {
+                fail(current, "代码任务已耗尽自治预算", current.verification());
+                return;
+            }
+
+            int buildNumber = current.consumedBuildExecutions() + 1;
+            current = taskRepository.save(evolve(
+                    current, CodingTaskStage.VERIFYING, plan.summary(),
+                    current.consumedFiles(), current.consumedBytes(), buildNumber,
+                    current.consumedDurationMs(), current.repairAttempts(), current.patches(),
+                    current.verification(), current.buildAttempts(),
+                    appendEvent(current.events(), "BUILD_STARTED",
+                            "开始第 " + buildNumber + " 次Docker沙箱测试"),
+                    current.workspaceId(), "", ""
+            ));
+
+            AutonomyBudget remainingBudget = new AutonomyBudget(
+                    current.budget().maxFiles(), current.budget().maxTotalBytes(),
+                    current.budget().maxBuildExecutions() - buildNumber + 1,
+                    Math.min(remainingDuration, MAX_SINGLE_BUILD_DURATION_MS)
+            );
+            BuildVerification verification = buildRunner.verify(workspace, remainingBudget);
+            long consumedDuration = current.consumedDurationMs()
+                    + Math.max(verification.durationMs(), 0);
+            List<BuildAttempt> attempts = new ArrayList<>(current.buildAttempts());
+            attempts.add(new BuildAttempt(buildNumber, verification, Instant.now()));
+
+            if (verification.passed()) {
+                taskRepository.save(evolve(
+                        current, CodingTaskStage.WAITING_APPROVAL, plan.summary(),
+                        current.consumedFiles(), current.consumedBytes(), buildNumber,
+                        consumedDuration, current.repairAttempts(), current.patches(),
+                        verification, attempts,
+                        appendEvent(current.events(), "BUILD_PASSED",
+                                "第 " + buildNumber + " 次沙箱测试通过，等待人工审批"),
+                        current.workspaceId(), "", ""
+                ));
+                return;
+            }
+
+            if (buildNumber >= current.budget().maxBuildExecutions()
+                    || consumedDuration >= current.budget().maxDurationMs()) {
+                taskRepository.save(evolve(
+                        current, CodingTaskStage.FAILED, plan.summary(),
+                        current.consumedFiles(), current.consumedBytes(), buildNumber,
+                        consumedDuration, current.repairAttempts(), current.patches(),
+                        verification, attempts,
+                        appendEvent(current.events(), "BUDGET_EXHAUSTED",
+                                "沙箱测试仍未通过，自治预算已耗尽"),
+                        current.workspaceId(), "",
+                        "达到最大自动修复次数，任务已安全停止"
+                ));
+                return;
+            }
+
+            int repairNumber = current.repairAttempts() + 1;
+            current = taskRepository.save(evolve(
+                    current, CodingTaskStage.REPAIRING, plan.summary(),
+                    current.consumedFiles(), current.consumedBytes(), buildNumber,
+                    consumedDuration, repairNumber, current.patches(), verification, attempts,
+                    appendEvent(current.events(), "REPAIR_STARTED",
+                            "第 " + buildNumber + " 次测试失败，开始第 "
+                                    + repairNumber + " 轮有界修复"),
+                    current.workspaceId(), "", ""
+            ));
+
+            CodePatchPlan repaired = sandboxPolicy.validate(
+                    patchRepairer.repair(workflow, plan, verification, repairNumber),
+                    current.budget()
+            );
+            ensureSamePaths(plan, repaired);
+            Map<String, String> previousFiles = new HashMap<>();
+            for (GeneratedFile file : plan.files()) {
+                previousFiles.put(file.relativePath(), file.content());
+            }
+            List<PatchFile> repairedPatches = writeGeneratedFiles(
+                    workspace, repaired.files(), previousFiles);
+            long repairedBytes = repairedPatches.stream().mapToLong(PatchFile::bytes).sum();
+            current = taskRepository.save(evolve(
+                    current, CodingTaskStage.VERIFYING, repaired.summary(),
+                    repairedPatches.size(), repairedBytes, buildNumber,
+                    consumedDuration, repairNumber, repairedPatches, verification, attempts,
+                    appendEvent(current.events(), "PATCH_REPAIRED",
+                            "第 " + repairNumber + " 轮修复完成，准备重新测试"),
+                    current.workspaceId(), "", ""
+            ));
+            plan = repaired;
+        }
+    }
+
     private List<PatchFile> writeGeneratedFiles(
             Path workspace,
-            List<GeneratedFile> generatedFiles
+            List<GeneratedFile> generatedFiles,
+            Map<String, String> previousFiles
     ) throws IOException {
         List<PatchFile> patches = new ArrayList<>();
+        boolean replacement = !previousFiles.isEmpty();
         for (GeneratedFile generated : generatedFiles) {
             Path target = sandboxPolicy.resolveContained(workspace, generated.relativePath());
             Files.createDirectories(target.getParent());
-            if (Files.exists(target)) {
-                throw new CodingTaskException("本阶段只允许新增文件：" + generated.relativePath());
+            if (!replacement && Files.exists(target)) {
+                throw new CodingTaskException("初始生成阶段只允许新增文件：" + generated.relativePath());
+            }
+            if (replacement && Files.notExists(target)) {
+                throw new CodingTaskException("修复阶段不能新增文件：" + generated.relativePath());
             }
             byte[] bytes = generated.content().getBytes(StandardCharsets.UTF_8);
             Files.write(target, bytes);
+            String operation = replacement ? "MODIFY" : "ADD";
+            String diff = replacement
+                    ? diffRenderer.renderReplacement(
+                            generated.relativePath(),
+                            previousFiles.get(generated.relativePath()),
+                            generated.content())
+                    : diffRenderer.renderAddedFile(generated.relativePath(), generated.content());
             patches.add(new PatchFile(
-                    generated.relativePath(), generated.purpose(), "ADD",
-                    sha256(bytes), bytes.length,
-                    diffRenderer.renderAddedFile(
-                            generated.relativePath(), generated.content())
+                    generated.relativePath(), generated.purpose(), operation,
+                    sha256(bytes), bytes.length, diff
             ));
         }
         return List.copyOf(patches);
     }
 
-    private CodingTask fail(
-            CodingTask initial,
-            List<CodingTaskEvent> events,
-            String message,
+    private void ensureSamePaths(CodePatchPlan previous, CodePatchPlan repaired) {
+        Set<String> oldPaths = new HashSet<>();
+        for (GeneratedFile file : previous.files()) {
+            oldPaths.add(file.relativePath());
+        }
+        Set<String> newPaths = new HashSet<>();
+        for (GeneratedFile file : repaired.files()) {
+            newPaths.add(file.relativePath());
+        }
+        if (!oldPaths.equals(newPaths)) {
+            throw new CodingTaskException("自动修复不能新增、删除或重命名文件");
+        }
+    }
+
+    private CodingTask fail(CodingTask current, String message, BuildVerification verification) {
+        return taskRepository.save(evolve(
+                current, CodingTaskStage.FAILED, current.summary(),
+                current.consumedFiles(), current.consumedBytes(),
+                current.consumedBuildExecutions(), current.consumedDurationMs(),
+                current.repairAttempts(), current.patches(), verification,
+                current.buildAttempts(), appendEvent(current.events(), "FAILED", message),
+                current.workspaceId(), "", message
+        ));
+    }
+
+    private CodingTask evolve(
+            CodingTask base,
+            CodingTaskStage stage,
             String summary,
-            List<PatchFile> patches,
+            int consumedFiles,
             long consumedBytes,
-            int buildExecutions
+            int consumedBuildExecutions,
+            long consumedDurationMs,
+            int repairAttempts,
+            List<PatchFile> patches,
+            BuildVerification verification,
+            List<BuildAttempt> buildAttempts,
+            List<CodingTaskEvent> events,
+            String workspaceId,
+            String approvedOutputPath,
+            String failureMessage
     ) {
-        List<CodingTaskEvent> updatedEvents = new ArrayList<>(events);
-        updatedEvents.add(CodingTaskEvent.of("FAILED", message));
-        CodingTask failed = new CodingTask(
-                initial.taskId(), initial.workflowId(), CodingTaskStage.FAILED,
-                summary, initial.budget(), patches.size(), consumedBytes,
-                buildExecutions, patches, null, updatedEvents, "", message,
-                initial.createdAt(), Instant.now()
+        return new CodingTask(
+                base.taskId(), base.workflowId(), base.workflowSnapshot(), stage,
+                summary, base.budget(),
+                consumedFiles, consumedBytes, consumedBuildExecutions,
+                consumedDurationMs, repairAttempts, patches, verification,
+                buildAttempts, events, workspaceId, approvedOutputPath, failureMessage,
+                base.createdAt(), Instant.now()
         );
-        tasks.put(failed.taskId(), failed);
-        return failed;
+    }
+
+    private List<CodingTaskEvent> appendEvent(
+            List<CodingTaskEvent> events,
+            String type,
+            String message
+    ) {
+        List<CodingTaskEvent> updated = new ArrayList<>(events);
+        updated.add(CodingTaskEvent.of(type, message));
+        return List.copyOf(updated);
     }
 
     private Path prepareTaskDirectory(Path root, String taskId) throws IOException {
