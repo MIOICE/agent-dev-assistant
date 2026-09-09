@@ -1,6 +1,8 @@
 target/
 .codex-target/
 .codex-stage8/
+.codex-stage9/
+knowledge-index/
 .idea/
 .claude/
 *.iml

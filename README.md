@@ -8,6 +8,7 @@
 - 多轮澄清：信息不足时暂停，补充后使用同一 `workflowId` 恢复。
 - 业务友好澄清：将问题分为阻塞项与非阻塞假设，每轮最多展示 4 个关键问题，支持选项式回答和一键采用 Agent 推荐值。
 - 企业 RAG：可选只读加载外部 MES Markdown，按标题层级分块并附带模块、分类、文档类型和来源路径；本地 BGE 语义召回与关键词召回合并重排，支持来源去重、置信度拒答、引用和离线评测。
+- 增量向量索引：使用Chunk SHA-256指纹识别新增、修改和删除内容，将`SimpleVectorStore`与索引清单原子保存到磁盘；语料和模型版本未变化时直接热加载，仅变化时计算受影响向量。
 - Tool Calling：业务文档检索工具和只读数据库元数据目录工具。
 - 标准 MCP Server：通过 Streamable HTTP 暴露 2 个可发现的只读工具，提供 JSON Schema、只读语义提示、白名单、参数校验和隐私化审计。
 - 方案生成：后端改动、数据库影响、API、安全、性能、测试、回滚和待确认项。
@@ -86,14 +87,20 @@ MES_KNOWLEDGE_ENABLED=true
 MES_KNOWLEDGE_ROOT=F:/path/to/sanitized-mes-workspace
 MES_KNOWLEDGE_MAX_FILES=400
 MES_KNOWLEDGE_MAX_FILE_BYTES=131072
+KNOWLEDGE_INDEX_ENABLED=true
+KNOWLEDGE_INDEX_ROOT=F:/agent-workspaces/knowledge-index
+KNOWLEDGE_INDEX_MODEL_ID=bge-small-zh-v1.5-v1
 ```
 
 然后在 VS Code 选择 `Agent - Mock` 或 `Agent - DeepSeek` 并按 `F5`。启动后在工作台的“企业知识库”区域查看装载文档数、分块数、跳过数和脱敏数。加载器只允许读取 `summary` 下的业务页面及 `document` 下的需求卡片、需求分析和整体方案；其他文件会被跳过，原目录始终只读。
 
-启动完成后可直接在浏览器打开 `http://localhost:8080/` 操作。也可以用下面三条完整命令验证新接口：
+`KNOWLEDGE_INDEX_MODEL_ID`代表Embedding模型与预处理规则的版本。更换模型、Tokenizer或向量处理逻辑时必须修改该值，系统会自动判定旧快照不兼容并全量重建。向量快照仍包含经过基础脱敏的文档Chunk，应当与原始业务资料采用相同的私有数据保护策略，不能提交Git。
+
+启动完成后可直接在浏览器打开 `http://localhost:8080/` 操作。也可以用下面四条完整命令验证新接口：
 
 ```text
 curl.exe "http://localhost:8080/api/knowledge/status"
+curl.exe "http://localhost:8080/api/knowledge/index/status"
 curl.exe --get "http://localhost:8080/api/knowledge/search" --data-urlencode "query=生产订单列表有哪些字段、接口和核心数据表"
 curl.exe "http://localhost:8080/api/knowledge/evaluation"
 ```
@@ -209,6 +216,7 @@ Invoke-RestMethod -Uri "http://localhost:8080/api/system/status" -Method Get |
 | POST | `/api/workflows/{id}/retry` | 重试失败工作流 |
 | GET | `/api/knowledge/search?query=...` | 混合检索并返回向量分、综合分与来源元数据 |
 | GET | `/api/knowledge/status` | 查看内置/外部文档、分块、跳过和脱敏统计 |
+| GET | `/api/knowledge/index/status` | 查看冷启动、热加载、增量更新及Chunk复用统计 |
 | GET | `/api/knowledge/evaluation` | 运行检索评测 |
 | POST | `/api/mcp` | MCP Streamable HTTP 协议入口 |
 | GET | `/api/tools/status` | 查看 MCP 暴露边界和工具策略 |
@@ -222,7 +230,7 @@ Invoke-RestMethod -Uri "http://localhost:8080/api/system/status" -Method Get |
 
 ## 简历表述边界
 
-可以如实写“Spring AI、DeepSeek、本地 BGE RAG、外部 MES 文档只读接入、标题感知分块、向量与关键词混合检索、来源元数据与置信度拒答、Tool Calling、MCP Streamable HTTP Server、Agent Skills 语义路由与渐进式加载、Skill SHA-256 完整性校验、工具白名单与调用审计、结构化澄清、确定性策略校验、Agent Trace、运行评测、工作流状态机、Human-in-the-loop、MySQL 工作流持久化、文件 Checkpoint、异步后台任务、有界自动修复、受限代码补丁、统一 Diff、自治预算与 Docker 隔离验证”。当前没有真正实现 Redis、标准 OpenTelemetry Exporter、分布式任务队列、MCP 身份认证、第三方 Skill 签名、持久化向量数据库、增量索引、直接修改真实仓库、生产发布和真实业务库查询，不应写成已经完成。
+可以如实写“Spring AI、DeepSeek、本地 BGE RAG、外部 MES 文档只读接入、标题感知分块、向量与关键词混合检索、Chunk指纹、磁盘向量快照、增量索引、来源元数据与置信度拒答、Tool Calling、MCP Streamable HTTP Server、Agent Skills 语义路由与渐进式加载、Skill SHA-256 完整性校验、工具白名单与调用审计、结构化澄清、确定性策略校验、Agent Trace、运行评测、工作流状态机、Human-in-the-loop、MySQL 工作流持久化、文件 Checkpoint、异步后台任务、有界自动修复、受限代码补丁、统一 Diff、自治预算与 Docker 隔离验证”。当前没有真正实现 Redis、标准 OpenTelemetry Exporter、分布式任务队列、MCP 身份认证、第三方 Skill 签名、Qdrant/PGVector等独立向量数据库、多实例索引锁、直接修改真实仓库、生产发布和真实业务库查询，不应写成已经完成。
 
 本轮“业务友好澄清 Agent”的实现与面试复述见 [docs/MILESTONE-01-BUSINESS-CLARIFICATION.md](docs/MILESTONE-01-BUSINESS-CLARIFICATION.md)。
 
@@ -239,5 +247,7 @@ Agent Skills 与渐进式上下文加载见 [docs/MILESTONE-06-AGENT-SKILLS.md](
 Skills 语义路由与供应链校验见 [docs/MILESTONE-07-SEMANTIC-SKILL-ROUTING.md](docs/MILESTONE-07-SEMANTIC-SKILL-ROUTING.md)。
 
 私有 MES 语料治理与混合 RAG 见 [docs/MILESTONE-08-PRIVATE-MES-RAG.md](docs/MILESTONE-08-PRIVATE-MES-RAG.md)。
+
+持久化快照与增量向量索引见 [docs/MILESTONE-09-INCREMENTAL-VECTOR-INDEX.md](docs/MILESTONE-09-INCREMENTAL-VECTOR-INDEX.md)。
 
 累计面试复述与追问答案见 [docs/INTERVIEW-GUIDE.md](docs/INTERVIEW-GUIDE.md)。

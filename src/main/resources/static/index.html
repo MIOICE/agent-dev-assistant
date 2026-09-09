@@ -392,7 +392,7 @@
         </header>
         <div class="knowledge-search">
             <input id="knowledgeQuery" type="text" placeholder="例如：订单数据下载和权限控制" maxlength="200">
-            <button id="searchKnowledgeButton" class="secondary-button" type="button">向量检索</button>
+            <button id="searchKnowledgeButton" class="secondary-button" type="button">混合检索</button>
             <button id="evaluateKnowledgeButton" class="secondary-button" type="button">运行检索评测</button>
             <button id="compareThresholdsButton" class="secondary-button" type="button">对比检索阈值</button>
         </div>
@@ -514,22 +514,26 @@
         knowledgeButton.textContent = '正在加载…';
 
         try {
-            const [statusResponse, chunksResponse] = await Promise.all([
+            const [statusResponse, indexResponse, chunksResponse] = await Promise.all([
                 fetch('/api/knowledge/status'),
+                fetch('/api/knowledge/index/status'),
                 fetch('/api/knowledge/chunks?limit=120')
             ]);
-            if (!statusResponse.ok || !chunksResponse.ok) {
+            if (!statusResponse.ok || !indexResponse.ok || !chunksResponse.ok) {
                 const statusCode = !statusResponse.ok
                     ? statusResponse.status
+                    : !indexResponse.ok
+                    ? indexResponse.status
                     : chunksResponse.status;
                 throw new Error(`知识库加载失败，HTTP状态码：${statusCode}`);
             }
 
-            const [status, chunks] = await Promise.all([
+            const [status, indexStatus, chunks] = await Promise.all([
                 statusResponse.json(),
+                indexResponse.json(),
                 chunksResponse.json()
             ]);
-            renderKnowledgeChunks(chunks, status);
+            renderKnowledgeChunks(chunks, status, indexStatus);
             knowledgePanel.classList.remove('hidden');
             knowledgePanel.scrollIntoView({ behavior: 'smooth' });
         } catch (error) {
@@ -542,15 +546,28 @@
         }
     }
 
-    function renderKnowledgeChunks(chunks, status) {
+    function renderKnowledgeChunks(chunks, status, indexStatus) {
         const privateCorpus = status.externalLoaded
             ? `已接入 ${status.externalDocuments} 份 MES 私有文档，` +
               `跳过 ${status.skippedDocuments} 个非业务或高风险文件，` +
               `${status.sanitizedDocuments} 份经过二次脱敏；`
             : `当前使用 ${status.bundledDocuments} 份内置演示文档；`;
+        const indexModeLabels = {
+            WARM_LOAD: `磁盘索引命中，复用 ${indexStatus.reusedChunks} 个向量；`,
+            INCREMENTAL_UPDATE: `增量索引：复用 ${indexStatus.reusedChunks}，` +
+                `新增 ${indexStatus.addedChunks}，更新 ${indexStatus.updatedChunks}，` +
+                `删除 ${indexStatus.removedChunks}；`,
+            COLD_REBUILD: `首次建立磁盘索引，共计算 ${indexStatus.addedChunks} 个向量；`,
+            INCOMPATIBLE_REBUILD: `模型或索引版本变化，已重建 ${indexStatus.addedChunks} 个向量；`,
+            RECOVERED_REBUILD: `缓存不可用，已安全重建 ${indexStatus.addedChunks} 个向量；`,
+            DISABLED: '磁盘索引已关闭，本次使用内存索引；'
+        };
+        const indexText = indexModeLabels[indexStatus.mode] ||
+            `索引状态：${indexStatus.mode}；`;
         document.querySelector('#knowledgeSummary').textContent =
             `${privateCorpus}共 ${status.sourceDocuments} 份源文档、` +
-            `${status.chunks} 个 Chunk，当前展示前 ${chunks.length} 个`;
+            `${status.chunks} 个 Chunk；${indexText}` +
+            `当前展示前 ${chunks.length} 个`;
         renderChunkCards(chunks, false);
     }
 
@@ -570,7 +587,7 @@
         try {
             const response = await fetch(`/api/knowledge/search?query=${encodeURIComponent(query)}`);
             if (!response.ok) {
-                throw new Error(`向量检索失败，HTTP状态码：${response.status}`);
+                throw new Error(`混合检索失败，HTTP状态码：${response.status}`);
             }
 
             const results = await response.json();
@@ -582,7 +599,7 @@
             showError(error.message);
         } finally {
             searchButton.disabled = false;
-            searchButton.textContent = '向量检索';
+            searchButton.textContent = '混合检索';
         }
     }
 

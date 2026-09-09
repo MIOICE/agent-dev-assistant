@@ -61,6 +61,12 @@ class KnowledgeControllerTest {
                 .andExpect(jsonPath("$.externalDocuments").value(0))
                 .andExpect(jsonPath("$.chunks").isNumber());
 
+        mockMvc.perform(get("/api/knowledge/index/status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mode").value("DISABLED"))
+                .andExpect(jsonPath("$.cacheEnabled").value(false))
+                .andExpect(jsonPath("$.currentChunks").isNumber());
+
         mockMvc.perform(get("/api/knowledge/search")
                         .param("query", "订单全量导出"))
                 .andExpect(status().isOk())

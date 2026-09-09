@@ -1,6 +1,7 @@
 package com.gaozhaoyang.agent.knowledge;
 
 import org.springframework.ai.document.Document;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -15,15 +16,34 @@ public class KnowledgeController {
     private final BusinessKnowledgeBase knowledgeBase;
     private final BusinessKnowledgeRetriever knowledgeRetriever;
     private final RetrievalEvaluator retrievalEvaluator;
+    private final KnowledgeIndexStatus indexStatus;
 
+    @Autowired
     public KnowledgeController(
             BusinessKnowledgeBase knowledgeBase,
             BusinessKnowledgeRetriever knowledgeRetriever,
-            RetrievalEvaluator retrievalEvaluator
+            RetrievalEvaluator retrievalEvaluator,
+            KnowledgeIndexStatus indexStatus
     ) {
         this.knowledgeBase = knowledgeBase;
         this.knowledgeRetriever = knowledgeRetriever;
         this.retrievalEvaluator = retrievalEvaluator;
+        this.indexStatus = indexStatus;
+    }
+
+    KnowledgeController(
+            BusinessKnowledgeBase knowledgeBase,
+            BusinessKnowledgeRetriever knowledgeRetriever,
+            RetrievalEvaluator retrievalEvaluator
+    ) {
+        this(
+                knowledgeBase,
+                knowledgeRetriever,
+                retrievalEvaluator,
+                KnowledgeIndexStatus.disabled(
+                        knowledgeBase.findAllChunks().size()
+                )
+        );
     }
 
     @GetMapping("/chunks")
@@ -40,6 +60,11 @@ public class KnowledgeController {
     @GetMapping("/status")
     public KnowledgeCorpusStatus status() {
         return knowledgeBase.status();
+    }
+
+    @GetMapping("/index/status")
+    public KnowledgeIndexStatus indexStatus() {
+        return indexStatus;
     }
 
     @GetMapping("/search")

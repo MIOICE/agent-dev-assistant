@@ -2,7 +2,7 @@ package com.gaozhaoyang.agent.knowledge;
 
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
-import org.springframework.ai.vectorstore.SimpleVectorStore;
+import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -22,14 +22,14 @@ public class BusinessKnowledgeRetriever implements
         KnowledgeSearcher,
         ConfigurableKnowledgeSearcher {
 
-    private final SimpleVectorStore vectorStore;
+    private final VectorStore vectorStore;
     private final List<Document> corpusDocuments;
     private final double minSimilarity;
     private final int topK;
     private final double confidenceThreshold;
 
     public BusinessKnowledgeRetriever(
-            SimpleVectorStore vectorStore,
+            VectorStore vectorStore,
             double minSimilarity,
             int topK
     ) {
@@ -38,7 +38,7 @@ public class BusinessKnowledgeRetriever implements
 
     @Autowired
     public BusinessKnowledgeRetriever(
-            SimpleVectorStore vectorStore,
+            VectorStore vectorStore,
             BusinessKnowledgeBase knowledgeBase,
             @Value("${app.embedding.similarity-threshold:0.45}")
             double minSimilarity,
@@ -57,7 +57,7 @@ public class BusinessKnowledgeRetriever implements
     }
 
     BusinessKnowledgeRetriever(
-            SimpleVectorStore vectorStore,
+            VectorStore vectorStore,
             List<Document> corpusDocuments,
             double minSimilarity,
             int topK,

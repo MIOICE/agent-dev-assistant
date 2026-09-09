@@ -43,6 +43,10 @@ app:
       root: ${MES_KNOWLEDGE_ROOT:}
       max-files: ${MES_KNOWLEDGE_MAX_FILES:400}
       max-file-bytes: ${MES_KNOWLEDGE_MAX_FILE_BYTES:131072}
+    index:
+      enabled: ${KNOWLEDGE_INDEX_ENABLED:true}
+      root: ${KNOWLEDGE_INDEX_ROOT:F:/agent-workspaces/knowledge-index}
+      model-id: ${KNOWLEDGE_INDEX_MODEL_ID:bge-small-zh-v1.5-v1}
   skills:
     location-pattern: classpath*:agent-skills/*/SKILL.md
     manifest-location: classpath:agent-skills/manifest.sha256
