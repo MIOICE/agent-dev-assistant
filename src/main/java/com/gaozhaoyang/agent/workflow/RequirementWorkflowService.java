@@ -4,8 +4,10 @@ import org.springframework.stereotype.Service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.gaozhaoyang.agent.knowledge.EvidenceResearchReport;
+import com.gaozhaoyang.agent.knowledge.EvidenceResearcher;
 import com.gaozhaoyang.agent.knowledge.KnowledgeSearcher;
-import com.gaozhaoyang.agent.knowledge.KnowledgeSearchResult;
+import com.gaozhaoyang.agent.knowledge.SingleQueryEvidenceResearcher;
 import com.gaozhaoyang.agent.requirement.RequirementAnalyzer;
 import com.gaozhaoyang.agent.requirement.ClarificationQuestion;
 import com.gaozhaoyang.agent.requirement.RequirementCard;
@@ -16,15 +18,29 @@ import java.util.List;
 import java.util.Map;
 import java.time.Duration;
 import java.time.Instant;
+import org.springframework.beans.factory.annotation.Autowired;
 
 @Service
 public class RequirementWorkflowService {
     private static final Logger log = LoggerFactory.getLogger(RequirementWorkflowService.class);
 
     private final RequirementAnalyzer requirementAnalyzer;
-    private final KnowledgeSearcher knowledgeSearcher;
+    private final EvidenceResearcher evidenceResearcher;
     private final SolutionGenerator solutionGenerator;
     private final WorkflowRepository workflowRepository;
+
+    @Autowired
+    public RequirementWorkflowService(
+            RequirementAnalyzer requirementAnalyzer,
+            EvidenceResearcher evidenceResearcher,
+            SolutionGenerator solutionGenerator,
+            WorkflowRepository workflowRepository
+    ) {
+        this.requirementAnalyzer = requirementAnalyzer;
+        this.evidenceResearcher = evidenceResearcher;
+        this.solutionGenerator = solutionGenerator;
+        this.workflowRepository = workflowRepository;
+    }
 
     public RequirementWorkflowService(
             RequirementAnalyzer requirementAnalyzer,
@@ -32,10 +48,12 @@ public class RequirementWorkflowService {
             SolutionGenerator solutionGenerator,
             WorkflowRepository workflowRepository
     ) {
-        this.requirementAnalyzer = requirementAnalyzer;
-        this.knowledgeSearcher = knowledgeSearcher;
-        this.solutionGenerator = solutionGenerator;
-        this.workflowRepository = workflowRepository;
+        this(
+                requirementAnalyzer,
+                new SingleQueryEvidenceResearcher(knowledgeSearcher),
+                solutionGenerator,
+                workflowRepository
+        );
     }
 
     public WorkflowState start(String requirement) {
@@ -241,51 +259,58 @@ public class RequirementWorkflowService {
                 return workflowRepository.save(currentState.waitForClarification());
             }
 
-            // 4. 使用完整需求上下文和业务模块构造检索问题
-            String searchQuery = buildKnowledgeQuery(initialState.requirement(), card);
-
-            // 5. 执行向量检索，并把 Spring AI Document 转成稳定的接口返回对象
+            // 4. 先规划证据需求，再在确定性预算内执行多轮检索和充分性检查
             Instant retrievalStartedAt = Instant.now();
-            List<KnowledgeSearchResult> knowledgeResults;
+            EvidenceResearchReport evidenceReport;
             try {
-                knowledgeResults = knowledgeSearcher.search(searchQuery).stream()
-                        .map(KnowledgeSearchResult::from)
-                        .toList();
+                evidenceReport = evidenceResearcher.research(
+                        initialState.requirement(),
+                        effectiveRequirement,
+                        card
+                );
                 currentState = currentState.addTraceSpan(AgentTraceSpan.success(
                         currentState.workflowId(),
-                        "rag.knowledge-retrieval",
+                        "rag.agentic-evidence-research",
                         retrievalStartedAt,
                         Map.of(
-                                "query.chars", String.valueOf(searchQuery.length()),
-                                "result.count", String.valueOf(knowledgeResults.size())
+                                "planning.mode", evidenceReport.planningMode(),
+                                "rounds.used", String.valueOf(evidenceReport.roundsUsed()),
+                                "queries.used", String.valueOf(evidenceReport.queriesUsed()),
+                                "evidence.count", String.valueOf(evidenceReport.evidence().size()),
+                                "evidence.sufficient", String.valueOf(evidenceReport.sufficient()),
+                                "unresolved.count", String.valueOf(evidenceReport.unresolvedNeedIds().size())
                         )
                 ));
             } catch (RuntimeException exception) {
                 currentState = currentState.addTraceSpan(AgentTraceSpan.error(
                         currentState.workflowId(),
-                        "rag.knowledge-retrieval",
+                        "rag.agentic-evidence-research",
                         retrievalStartedAt,
                         exception
                 ));
                 throw exception;
             }
 
-            // 6. 检索完成后保存结果，并进入技术方案生成阶段
+            // 5. 检索完成后保存计划、轨迹、证据和未解决缺口
             currentState = workflowRepository.save(
-                    currentState.completeKnowledgeRetrieval(knowledgeResults)
+                    currentState.completeKnowledgeRetrieval(evidenceReport)
             );
 
-            // 7. 使用结构化需求卡片和真实检索资料生成技术方案
+            // 6. 使用结构化需求卡片和真实检索资料生成技术方案
             Instant solutionStartedAt = Instant.now();
             TechnicalSolution technicalSolution;
             try {
-                technicalSolution = solutionGenerator.generate(card, knowledgeResults);
+                technicalSolution = solutionGenerator.generate(
+                        card,
+                        evidenceReport.evidence()
+                );
                 currentState = currentState.addTraceSpan(AgentTraceSpan.success(
                         currentState.workflowId(),
                         "agent.solution-generation",
                         solutionStartedAt,
                         Map.of(
-                                "knowledge.count", String.valueOf(knowledgeResults.size()),
+                                "knowledge.count", String.valueOf(evidenceReport.evidence().size()),
+                                "evidence.sufficient", String.valueOf(evidenceReport.sufficient()),
                                 "feedback.count", String.valueOf(currentState.solutionFeedbacks().size())
                         )
                 ));
@@ -299,7 +324,7 @@ public class RequirementWorkflowService {
                 throw exception;
             }
 
-            // 8. 方案生成完成后进入人工审批，不能由Agent直接执行高风险操作
+            // 7. 方案生成完成后进入人工审批，不能由Agent直接执行高风险操作
             return workflowRepository.save(
                     currentState.completeSolutionGeneration(technicalSolution)
             );
@@ -342,16 +367,6 @@ public class RequirementWorkflowService {
             case SOLUTION_GENERATION -> "方案生成";
             default -> "任务执行";
         };
-    }
-
-    private String buildKnowledgeQuery(
-            String originalRequirement,
-            RequirementCard card
-    ) {
-        String modules = String.join(" ", card.affectedModules());
-        return modules.isBlank()
-                ? originalRequirement
-                : originalRequirement + " " + modules;
     }
 
     private double ratio(long numerator, long denominator) {

@@ -47,6 +47,10 @@ app:
       enabled: ${KNOWLEDGE_INDEX_ENABLED:true}
       root: ${KNOWLEDGE_INDEX_ROOT:F:/agent-workspaces/knowledge-index}
       model-id: ${KNOWLEDGE_INDEX_MODEL_ID:bge-small-zh-v1.5-v1}
+    agentic-rag:
+      max-rounds: ${AGENTIC_RAG_MAX_ROUNDS:2}
+      max-queries: ${AGENTIC_RAG_MAX_QUERIES:6}
+      max-evidence: ${AGENTIC_RAG_MAX_EVIDENCE:8}
   skills:
     location-pattern: classpath*:agent-skills/*/SKILL.md
     manifest-location: classpath:agent-skills/manifest.sha256

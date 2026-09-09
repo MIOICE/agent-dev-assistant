@@ -110,11 +110,15 @@ class RequirementWorkflowServiceTest {
         assertThat(state.knowledgeResults().getFirst().sourceId())
                 .isEqualTo("DOC-EXPORT-001");
         assertThat(state.technicalSolution()).isEqualTo(technicalSolution);
+        assertThat(state.evidenceResearch().planningMode())
+                .isEqualTo("SINGLE_QUERY_COMPATIBILITY");
+        assertThat(state.evidenceResearch().queriesUsed()).isEqualTo(1);
+        assertThat(state.evidenceResearch().sufficient()).isTrue();
         assertThat(state.traceSpans())
                 .extracting(AgentTraceSpan::operation)
                 .containsExactly(
                         "agent.requirement-analysis",
-                        "rag.knowledge-retrieval",
+                        "rag.agentic-evidence-research",
                         "agent.solution-generation"
                 );
         assertThat(state.traceSpans()).allMatch(span -> "SUCCESS".equals(span.status()));

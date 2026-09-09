@@ -21,6 +21,9 @@ class DashboardKnowledgeUiTest {
                 .contains("/api/knowledge/chunks?limit=60")
                 .contains("scrollIntoView({behavior:'smooth',block:'start'})")
                 .contains("检索范围仍是全部 ${status.chunks} 个 Chunk")
+                .contains("Agentic RAG 证据研究")
+                .contains("renderEvidenceResearch(w.evidenceResearch)")
+                .contains("rag.agentic-evidence-research")
                 .doesNotContain(
                         "<section id=\"knowledgePanel\" "
                                 + "class=\"panel knowledge hidden\">"
