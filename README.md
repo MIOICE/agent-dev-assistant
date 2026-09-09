@@ -92,7 +92,7 @@ KNOWLEDGE_INDEX_ROOT=F:/agent-workspaces/knowledge-index
 KNOWLEDGE_INDEX_MODEL_ID=bge-small-zh-v1.5-v1
 ```
 
-然后在 VS Code 选择 `Agent - Mock` 或 `Agent - DeepSeek` 并按 `F5`。启动后在工作台的“企业知识库”区域查看装载文档数、分块数、跳过数和脱敏数。加载器只允许读取 `summary` 下的业务页面及 `document` 下的需求卡片、需求分析和整体方案；其他文件会被跳过，原目录始终只读。
+然后在 VS Code 选择 `Agent - Mock` 或 `Agent - DeepSeek` 并按 `F5`。启动后工作台会常驻展示源文档、Chunk、MES 私有文档和向量索引状态；点击“查看知识库”只渲染前 60 个 Chunk，混合检索仍覆盖全部语料，避免把分页预览数量误认为知识库总量。加载器只允许读取 `summary` 下的业务页面及 `document` 下的需求卡片、需求分析和整体方案；其他文件会被跳过，原目录始终只读。
 
 `KNOWLEDGE_INDEX_MODEL_ID`代表Embedding模型与预处理规则的版本。更换模型、Tokenizer或向量处理逻辑时必须修改该值，系统会自动判定旧快照不兼容并全量重建。向量快照仍包含经过基础脱敏的文档Chunk，应当与原始业务资料采用相同的私有数据保护策略，不能提交Git。
 
