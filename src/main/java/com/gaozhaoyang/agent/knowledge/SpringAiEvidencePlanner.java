@@ -19,6 +19,7 @@ public class SpringAiEvidencePlanner implements EvidencePlanner {
             输出约束：
             - planningMode 固定为 MODEL。
             - needs 只能有1至5项，id必须唯一且使用大写英文下划线。
+            - 优先使用 BUSINESS_RULES、DATA_AND_API、SECURITY、PERFORMANCE 作为证据类型 ID。
             - query 必须适合检索企业业务文档，最多300字。
             - purpose 说明该证据会支持什么决策，最多200字。
             - 业务规则、数据/接口依赖通常标为 required=true。

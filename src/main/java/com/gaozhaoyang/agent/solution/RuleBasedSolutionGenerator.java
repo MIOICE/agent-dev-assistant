@@ -21,10 +21,7 @@ public class RuleBasedSolutionGenerator implements SolutionGenerator {
             RequirementCard requirementCard,
             List<KnowledgeSearchResult> knowledgeResults
     ) {
-        List<String> sources = knowledgeResults.stream()
-                .map(result -> result.sourceId() + "｜" + result.title())
-                .distinct()
-                .toList();
+        boolean hasEvidence = !knowledgeResults.isEmpty();
 
         return new TechnicalSolution(
                 "根据需求卡片和检索到的业务规范生成实施方案，所有具体表名、字段名和权限编码需在开发前确认。",
@@ -56,9 +53,9 @@ public class RuleBasedSolutionGenerator implements SolutionGenerator {
                         "保留原有流程开关，异常时可切回旧实现",
                         "数据库变更必须提供可执行的回滚脚本并先完成备份验证"
                 ),
-                sources.isEmpty()
+                !hasEvidence
                         ? List.of("当前没有命中业务资料，方案进入开发前必须补充人工确认")
-                        : List.of("方案参考资料：" + String.join("、", sources))
+                        : List.of("具体表名、字段名与权限编码仍需通过只读元数据和业务负责人确认")
         );
     }
 

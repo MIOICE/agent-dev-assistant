@@ -24,6 +24,9 @@ class DashboardKnowledgeUiTest {
                 .contains("Agentic RAG 证据研究")
                 .contains("renderEvidenceResearch(w.evidenceResearch)")
                 .contains("rag.agentic-evidence-research")
+                .contains("方案证据绑定")
+                .contains("renderSolutionGrounding(w.solutionGrounding")
+                .contains("agent.solution-grounding")
                 .doesNotContain(
                         "<section id=\"knowledgePanel\" "
                                 + "class=\"panel knowledge hidden\">"

@@ -19,6 +19,8 @@
   -> Executor 在最多2轮、6次查询内执行本地 BGE 混合检索，未命中时改写查询
   -> Critic 根据置信度拒答结果检查必要证据是否覆盖，保存证据与未解决缺口
   -> 生成结构化技术方案
+  -> Grounding 节点将方案结论绑定到证据目标命中的真实 Chunk
+  -> 不存在来源的结论标为 UNSUPPORTED，待确认内容标为 ASSUMPTION
   -> WAITING_APPROVAL
   -> 通过：COMPLETED
   -> 驳回：携带审批意见重新生成方案
@@ -44,6 +46,9 @@
 - `EvidencePlanner` 在 DeepSeek 模式下生成 1 至 5 个结构化证据目标；Mock 模式使用确定性规则，模型输出或 Schema 校验失败时降级到相同规则边界。规划只决定“要找什么”，不直接决定事实。
 - `AgenticEvidenceResearchService` 充当受控 Harness：按计划执行查询、对未命中目标做一次上下文改写、按 Chunk ID 去重并保留最高分。最大轮数、查询数和证据数均由 Java 配置硬限制，模型无法扩大自治预算。
 - 充分性检查不让模型凭感觉打分，而是复用检索器的置信度拒答结果：所有 `required=true` 目标至少命中一条可信证据才算充分。计划、每次查询、分数、结果 ID 和未解决缺口都随 `WorkflowState` 快照持久化并在工作台展示。
+- `SolutionGroundingService` 把方案拆为摘要、后端、数据库、API、安全、性能、测试、回滚和假设等原子结论，再依据 EvidenceNeed 与实际命中的 Chunk ID 建立来源关系。只有最终证据集合中真实存在的 ID 才能成为引用，避免模型或中间状态产生无效来源。
+- 证据绑定状态分为 `EVIDENCE_LINKED`、`ASSUMPTION` 和 `UNSUPPORTED`。关联率只统计事实性结论，不用把假设混入分母；报告随工作流快照持久化，重新生成方案时会重新计算，并产生独立 Trace Span。
+- 当前 Grounding 验证的是来源可追溯性，不把检索相关性包装成事实蕴含。工作台明确提示“已关联证据不等于已证明”，人工审批仍负责检查证据是否真的支持结论。
 - 模型输出由 Spring AI 的结构化映射约束为 Java Record；规则校验器再做确定性业务校验。
 - `ClarificationQuestion` 将追问建模为类别、问题、选项、推荐值和阻塞标记。模型负责理解语义，Java 策略层负责去重、修复选项并限制最多 4 个阻塞问题。
 - 只有会改变业务结果、权限边界或不可逆影响的问题才能阻塞流程；分页、异步阈值、重试等技术决策进入 `assumptions`，由方案阶段说明。

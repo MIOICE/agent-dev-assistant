@@ -114,12 +114,15 @@ class RequirementWorkflowServiceTest {
                 .isEqualTo("SINGLE_QUERY_COMPATIBILITY");
         assertThat(state.evidenceResearch().queriesUsed()).isEqualTo(1);
         assertThat(state.evidenceResearch().sufficient()).isTrue();
+        assertThat(state.solutionGrounding().unsupportedClaims()).isZero();
+        assertThat(state.solutionGrounding().evidenceLinkedClaims()).isGreaterThan(0);
         assertThat(state.traceSpans())
                 .extracting(AgentTraceSpan::operation)
                 .containsExactly(
                         "agent.requirement-analysis",
                         "rag.agentic-evidence-research",
-                        "agent.solution-generation"
+                        "agent.solution-generation",
+                        "agent.solution-grounding"
                 );
         assertThat(state.traceSpans()).allMatch(span -> "SUCCESS".equals(span.status()));
     }
@@ -317,6 +320,10 @@ class RequirementWorkflowServiceTest {
                 .containsExactly("大数据量场景必须改成异步导出");
         assertThat(regenerated.stage()).isEqualTo(WorkflowStage.WAITING_APPROVAL);
         assertThat(regenerated.technicalSolution().summary()).contains("异步导出");
+        assertThat(regenerated.solutionGrounding().claims()).isNotEmpty();
+        assertThat(regenerated.traceSpans())
+                .filteredOn(span -> "agent.solution-grounding".equals(span.operation()))
+                .hasSize(2);
         assertThat(regenerated.events()).extracting(WorkflowEvent::type)
                 .contains(WorkflowEventType.REJECTED, WorkflowEventType.SOLUTION_GENERATED);
     }
@@ -381,7 +388,7 @@ class RequirementWorkflowServiceTest {
         WorkflowMetrics metrics = service.metrics();
 
         assertThat(trace.traceId()).isEqualTo(second.workflowId());
-        assertThat(trace.spanCount()).isEqualTo(3);
+        assertThat(trace.spanCount()).isEqualTo(4);
         assertThat(trace.failedSpanCount()).isZero();
         assertThat(metrics.totalWorkflows()).isEqualTo(2);
         assertThat(metrics.firstPassReadyRate()).isEqualTo(1);

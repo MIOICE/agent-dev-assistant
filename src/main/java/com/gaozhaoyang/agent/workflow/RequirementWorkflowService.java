@@ -12,6 +12,8 @@ import com.gaozhaoyang.agent.requirement.RequirementAnalyzer;
 import com.gaozhaoyang.agent.requirement.ClarificationQuestion;
 import com.gaozhaoyang.agent.requirement.RequirementCard;
 import com.gaozhaoyang.agent.solution.SolutionGenerator;
+import com.gaozhaoyang.agent.solution.SolutionGroundingReport;
+import com.gaozhaoyang.agent.solution.SolutionGroundingService;
 import com.gaozhaoyang.agent.solution.TechnicalSolution;
 
 import java.util.List;
@@ -27,6 +29,7 @@ public class RequirementWorkflowService {
     private final RequirementAnalyzer requirementAnalyzer;
     private final EvidenceResearcher evidenceResearcher;
     private final SolutionGenerator solutionGenerator;
+    private final SolutionGroundingService solutionGroundingService;
     private final WorkflowRepository workflowRepository;
 
     @Autowired
@@ -34,11 +37,13 @@ public class RequirementWorkflowService {
             RequirementAnalyzer requirementAnalyzer,
             EvidenceResearcher evidenceResearcher,
             SolutionGenerator solutionGenerator,
+            SolutionGroundingService solutionGroundingService,
             WorkflowRepository workflowRepository
     ) {
         this.requirementAnalyzer = requirementAnalyzer;
         this.evidenceResearcher = evidenceResearcher;
         this.solutionGenerator = solutionGenerator;
+        this.solutionGroundingService = solutionGroundingService;
         this.workflowRepository = workflowRepository;
     }
 
@@ -52,6 +57,7 @@ public class RequirementWorkflowService {
                 requirementAnalyzer,
                 new SingleQueryEvidenceResearcher(knowledgeSearcher),
                 solutionGenerator,
+                new SolutionGroundingService(),
                 workflowRepository
         );
     }
@@ -181,7 +187,8 @@ public class RequirementWorkflowService {
         requireStage(currentState, WorkflowStage.WAITING_APPROVAL, "驳回方案");
         WorkflowState rejectedState = workflowRepository.save(currentState.reject(feedback));
 
-        Instant regenerationStartedAt = Instant.now();
+        String activeOperation = "agent.solution-regeneration";
+        Instant activeOperationStartedAt = Instant.now();
         try {
             TechnicalSolution regenerated = solutionGenerator.regenerate(
                     rejectedState.requirementCard(),
@@ -190,20 +197,32 @@ public class RequirementWorkflowService {
             );
             rejectedState = rejectedState.addTraceSpan(AgentTraceSpan.success(
                     rejectedState.workflowId(),
-                    "agent.solution-regeneration",
-                    regenerationStartedAt,
+                    activeOperation,
+                    activeOperationStartedAt,
                     Map.of("feedback.count", String.valueOf(rejectedState.solutionFeedbacks().size()))
             ));
+            activeOperation = "agent.solution-grounding";
+            activeOperationStartedAt = Instant.now();
+            SolutionGroundingReport grounding = solutionGroundingService.ground(
+                    regenerated,
+                    rejectedState.evidenceResearch()
+            );
+            rejectedState = rejectedState.addTraceSpan(AgentTraceSpan.success(
+                    rejectedState.workflowId(),
+                    activeOperation,
+                    activeOperationStartedAt,
+                    groundingAttributes(grounding)
+            ));
             return workflowRepository.save(
-                    rejectedState.completeSolutionGeneration(regenerated)
+                    rejectedState.completeSolutionGeneration(regenerated, grounding)
             );
         } catch (WorkflowPersistenceException exception) {
             throw exception;
         } catch (RuntimeException exception) {
             rejectedState = rejectedState.addTraceSpan(AgentTraceSpan.error(
                     rejectedState.workflowId(),
-                    "agent.solution-regeneration",
-                    regenerationStartedAt,
+                    activeOperation,
+                    activeOperationStartedAt,
                     exception
             ));
             log.error("Regenerating solution failed for workflow {} at stage {}",
@@ -324,9 +343,33 @@ public class RequirementWorkflowService {
                 throw exception;
             }
 
-            // 7. 方案生成完成后进入人工审批，不能由Agent直接执行高风险操作
+            // 7. 为每条方案结论绑定检索证据，未绑定内容必须显式暴露
+            Instant groundingStartedAt = Instant.now();
+            SolutionGroundingReport grounding;
+            try {
+                grounding = solutionGroundingService.ground(
+                        technicalSolution,
+                        evidenceReport
+                );
+                currentState = currentState.addTraceSpan(AgentTraceSpan.success(
+                        currentState.workflowId(),
+                        "agent.solution-grounding",
+                        groundingStartedAt,
+                        groundingAttributes(grounding)
+                ));
+            } catch (RuntimeException exception) {
+                currentState = currentState.addTraceSpan(AgentTraceSpan.error(
+                        currentState.workflowId(),
+                        "agent.solution-grounding",
+                        groundingStartedAt,
+                        exception
+                ));
+                throw exception;
+            }
+
+            // 8. 方案生成完成后进入人工审批，不能由Agent直接执行高风险操作
             return workflowRepository.save(
-                    currentState.completeSolutionGeneration(technicalSolution)
+                    currentState.completeSolutionGeneration(technicalSolution, grounding)
             );
         } catch (WorkflowPersistenceException exception) {
             throw exception;
@@ -335,6 +378,17 @@ public class RequirementWorkflowService {
                     currentState.workflowId(), currentState.stage(), exception);
             return workflowRepository.save(currentState.fail(failureMessage(currentState.stage())));
         }
+    }
+
+    private Map<String, String> groundingAttributes(SolutionGroundingReport grounding) {
+        return Map.of(
+                "claims.total", String.valueOf(grounding.totalFactualClaims()),
+                "claims.linked", String.valueOf(grounding.evidenceLinkedClaims()),
+                "claims.unsupported", String.valueOf(grounding.unsupportedClaims()),
+                "claims.assumptions", String.valueOf(grounding.assumptionClaims()),
+                "grounding.rate", String.valueOf(grounding.groundingRate()),
+                "evidence.sufficient", String.valueOf(grounding.evidenceSufficient())
+        );
     }
 
     private WorkflowState findRequired(String workflowId) {

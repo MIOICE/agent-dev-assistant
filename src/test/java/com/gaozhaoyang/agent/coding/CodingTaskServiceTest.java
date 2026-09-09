@@ -228,7 +228,7 @@ class CodingTaskServiceTest {
         Instant now = Instant.now();
         return new WorkflowState(
                 "workflow-1", "订单列表增加导出功能", List.of(),
-                WorkflowStage.COMPLETED, null, List.of(), null, null, List.of(),
+                WorkflowStage.COMPLETED, null, List.of(), null, null, null, List.of(),
                 List.of(), 1, now, now, List.of(), null
         );
     }
