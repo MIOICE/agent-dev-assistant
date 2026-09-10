@@ -10,6 +10,7 @@
 - Agentic RAG：由 DeepSeek 将明确需求拆成 1 至 5 项可验证的证据需求，Harness 在最多 2 轮、6 次查询预算内执行本地 BGE 混合检索；未命中时改写查询，并持久化规划、检索轨迹、证据与缺口。Mock 模式使用可解释规则规划，模型规划失败时也会安全降级。
 - 方案证据绑定：把摘要、后端、数据库、API、安全、性能、测试和回滚结论逐项关联到证据计划实际命中的 Chunk；引用不存在或专项证据缺失时标记为未支撑，待确认内容单独标记为假设，并计算不含假设的证据关联率。
 - Claim–Evidence Critic：DeepSeek 通过一次批量调用判断原子结论与引用证据之间是支持、矛盾还是证据不足；Java 再校验 claim ID、证据 ID 白名单和结果完整性，非法引用自动降级，模型不可用时保留“未评估”状态交由人工复核。
+- 语义审查评测：内置 12 条人工标注的合成 MES 业务样例，均衡覆盖支持、矛盾和证据不足；一次批量运行后计算 Coverage、Accuracy、分类 Recall、Macro Recall 和完整混淆矩阵，Mock 模式覆盖率为 0 而不会伪造模型准确率。
 - 企业知识检索：可选只读加载外部 MES Markdown，按标题层级分块并附带模块、分类、文档类型和来源路径；本地 BGE 语义召回与关键词召回合并重排，支持来源去重、置信度拒答、引用和离线评测。
 - 增量向量索引：使用Chunk SHA-256指纹识别新增、修改和删除内容，将`SimpleVectorStore`与索引清单原子保存到磁盘；语料和模型版本未变化时直接热加载，仅变化时计算受影响向量。
 - Tool Calling：业务文档检索工具和只读数据库元数据目录工具。
@@ -221,6 +222,7 @@ Invoke-RestMethod -Uri "http://localhost:8080/api/system/status" -Method Get |
 | GET | `/api/knowledge/status` | 查看内置/外部文档、分块、跳过和脱敏统计 |
 | GET | `/api/knowledge/index/status` | 查看冷启动、热加载、增量更新及Chunk复用统计 |
 | GET | `/api/knowledge/evaluation` | 运行检索评测 |
+| GET | `/api/solution-critique/evaluation` | 运行 12 条 Claim–Evidence 金标语义评测 |
 | POST | `/api/mcp` | MCP Streamable HTTP 协议入口 |
 | GET | `/api/tools/status` | 查看 MCP 暴露边界和工具策略 |
 | GET | `/api/tools/audits` | 查看最近工具调用审计 |
@@ -233,7 +235,7 @@ Invoke-RestMethod -Uri "http://localhost:8080/api/system/status" -Method Get |
 
 ## 简历表述边界
 
-可以如实写“Spring AI、DeepSeek、有界 Agentic RAG、证据规划与多轮查询改写、证据充分性检查、方案结论与 Chunk 级来源绑定、Claim–Evidence 支持/矛盾/不足分类、模型输出 ID 白名单复核、本地 BGE RAG、外部 MES 文档只读接入、标题感知分块、向量与关键词混合检索、Chunk指纹、磁盘向量快照、增量索引、来源元数据与置信度拒答、Tool Calling、MCP Streamable HTTP Server、Agent Skills 语义路由与渐进式加载、Skill SHA-256 完整性校验、工具白名单与调用审计、结构化澄清、确定性策略校验、Agent Trace、运行评测、工作流状态机、Human-in-the-loop、MySQL 工作流持久化、文件 Checkpoint、异步后台任务、有界自动修复、受限代码补丁、统一 Diff、自治预算与 Docker 隔离验证”。当前没有 Claim–Evidence 人工金标准确率、真正实现 Redis、标准 OpenTelemetry Exporter、分布式任务队列、MCP 身份认证、第三方 Skill 签名、Qdrant/PGVector等独立向量数据库、多实例索引锁、直接修改真实仓库、生产发布和真实业务库查询，不应写成已经完成。
+可以如实写“Spring AI、DeepSeek、有界 Agentic RAG、证据规划与多轮查询改写、证据充分性检查、方案结论与 Chunk 级来源绑定、Claim–Evidence 支持/矛盾/不足分类、12 条合成业务金标集、Coverage/Accuracy/Macro Recall/混淆矩阵、模型输出 ID 白名单复核、本地 BGE RAG、外部 MES 文档只读接入、标题感知分块、向量与关键词混合检索、Chunk指纹、磁盘向量快照、增量索引、来源元数据与置信度拒答、Tool Calling、MCP Streamable HTTP Server、Agent Skills 语义路由与渐进式加载、Skill SHA-256 完整性校验、工具白名单与调用审计、结构化澄清、确定性策略校验、Agent Trace、运行评测、工作流状态机、Human-in-the-loop、MySQL 工作流持久化、文件 Checkpoint、异步后台任务、有界自动修复、受限代码补丁、统一 Diff、自治预算与 Docker 隔离验证”。当前 Claim–Evidence 金标只有 12 条合成业务样例，尚未由真实业务专家标注，也没有生产流量准确率；Redis、标准 OpenTelemetry Exporter、分布式任务队列、MCP 身份认证、第三方 Skill 签名、Qdrant/PGVector等独立向量数据库、多实例索引锁、直接修改真实仓库、生产发布和真实业务库查询也未完成，不应写成已经实现。
 
 本轮“业务友好澄清 Agent”的实现与面试复述见 [docs/MILESTONE-01-BUSINESS-CLARIFICATION.md](docs/MILESTONE-01-BUSINESS-CLARIFICATION.md)。
 
@@ -258,5 +260,7 @@ Skills 语义路由与供应链校验见 [docs/MILESTONE-07-SEMANTIC-SKILL-ROUTI
 方案证据绑定与未支撑检测见 [docs/MILESTONE-11-SOLUTION-GROUNDING.md](docs/MILESTONE-11-SOLUTION-GROUNDING.md)。
 
 Claim–Evidence 语义审查与确定性后校验见 [docs/MILESTONE-12-CLAIM-EVIDENCE-CRITIC.md](docs/MILESTONE-12-CLAIM-EVIDENCE-CRITIC.md)。
+
+Claim–Evidence 人工金标评测见 [docs/MILESTONE-13-CLAIM-EVIDENCE-EVALS.md](docs/MILESTONE-13-CLAIM-EVIDENCE-EVALS.md)。
 
 累计面试复述与追问答案见 [docs/INTERVIEW-GUIDE.md](docs/INTERVIEW-GUIDE.md)。

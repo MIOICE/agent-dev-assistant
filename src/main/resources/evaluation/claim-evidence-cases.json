@@ -1,0 +1,86 @@
+[
+  {
+    "id": "CE-SUP-001",
+    "claim": "预计导出超过一万条记录时应转为异步任务。",
+    "evidence": "当导出结果预计超过一万条时，必须创建异步导出任务，不得在同步请求中一次性生成文件。",
+    "expectedVerdict": "SUPPORTED",
+    "tags": ["导出", "性能"]
+  },
+  {
+    "id": "CE-SUP-002",
+    "claim": "错误订单删除应采用逻辑删除。",
+    "evidence": "错误订单默认通过 deleted 字段执行逻辑删除，保留原始记录以满足审计和恢复要求。",
+    "expectedVerdict": "SUPPORTED",
+    "tags": ["订单", "删除"]
+  },
+  {
+    "id": "CE-SUP-003",
+    "claim": "订单状态变更必须校验当前状态与目标状态是否合法。",
+    "evidence": "修改订单状态前，系统必须按照状态机逐条验证当前状态到目标状态的迁移是否合法。",
+    "expectedVerdict": "SUPPORTED",
+    "tags": ["订单", "状态机"]
+  },
+  {
+    "id": "CE-SUP-004",
+    "claim": "全量导出必须校验用户角色与数据权限。",
+    "evidence": "执行全量导出前必须同时校验角色权限和数据范围，无权限用户不得获取导出文件。",
+    "expectedVerdict": "SUPPORTED",
+    "tags": ["导出", "权限"]
+  },
+  {
+    "id": "CE-CON-001",
+    "claim": "普通业务用户可以直接执行全量订单导出。",
+    "evidence": "全量订单导出属于高风险操作，仅管理员可以发起，普通业务用户必须被拒绝。",
+    "expectedVerdict": "CONTRADICTED",
+    "tags": ["导出", "权限"]
+  },
+  {
+    "id": "CE-CON-002",
+    "claim": "错误订单应直接物理删除且无需保留记录。",
+    "evidence": "错误订单禁止直接物理删除，应使用逻辑删除并保留记录用于审计和恢复。",
+    "expectedVerdict": "CONTRADICTED",
+    "tags": ["订单", "删除"]
+  },
+  {
+    "id": "CE-CON-003",
+    "claim": "二十万条订单可以在同步 HTTP 请求中一次性导出。",
+    "evidence": "超过一万条的导出必须异步执行；同步请求不得处理十万级数据，以避免超时和内存风险。",
+    "expectedVerdict": "CONTRADICTED",
+    "tags": ["导出", "性能"]
+  },
+  {
+    "id": "CE-CON-004",
+    "claim": "订单状态可以跳过业务流程任意修改。",
+    "evidence": "订单状态只能按照配置的业务流程迁移，发现非法目标状态时必须拒绝并返回具体原因。",
+    "expectedVerdict": "CONTRADICTED",
+    "tags": ["订单", "状态机"]
+  },
+  {
+    "id": "CE-INS-001",
+    "claim": "导出文件必须保留七天。",
+    "evidence": "系统需要记录导出任务的操作人、操作时间和执行结果，方便后续审计。",
+    "expectedVerdict": "INSUFFICIENT",
+    "tags": ["导出", "生命周期"]
+  },
+  {
+    "id": "CE-INS-002",
+    "claim": "导出接口必须支持每秒一千次请求。",
+    "evidence": "上线前应完成导出接口的性能测试，并根据实际数据量设置合理的限流策略。",
+    "expectedVerdict": "INSUFFICIENT",
+    "tags": ["接口", "性能"]
+  },
+  {
+    "id": "CE-INS-003",
+    "claim": "CSV 文件编码必须使用 UTF-8 BOM。",
+    "evidence": "订单导出支持 CSV 格式，具体字段范围需要在开发前由业务负责人确认。",
+    "expectedVerdict": "INSUFFICIENT",
+    "tags": ["导出", "文件格式"]
+  },
+  {
+    "id": "CE-INS-004",
+    "claim": "任务结果必须在 Redis 中缓存四十八小时。",
+    "evidence": "对于重复查询可以评估使用缓存，但应根据数据一致性要求选择具体实现。",
+    "expectedVerdict": "INSUFFICIENT",
+    "tags": ["缓存", "Redis"]
+  }
+]

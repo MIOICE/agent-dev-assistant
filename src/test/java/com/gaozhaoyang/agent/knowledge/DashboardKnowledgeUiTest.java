@@ -31,6 +31,10 @@ class DashboardKnowledgeUiTest {
                 .contains("renderSolutionCritique(w.solutionCritique")
                 .contains("agent.claim-evidence-critic")
                 .contains("未执行模型语义判定，请人工复核")
+                .contains("id=\"evaluateCritic\"")
+                .contains("/api/solution-critique/evaluation")
+                .contains("renderCritiqueEvaluation")
+                .contains("混淆矩阵（预期 → 实际）")
                 .doesNotContain(
                         "<section id=\"knowledgePanel\" "
                                 + "class=\"panel knowledge hidden\">"

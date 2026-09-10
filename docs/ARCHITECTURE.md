@@ -54,6 +54,8 @@
 - `SpringAiSolutionEvidenceCritic` 将结论清单与去重证据字典一次性提交 DeepSeek，避免为每条结论重复传输相同 Chunk。模型输出 `SUPPORTED`、`CONTRADICTED` 或 `INSUFFICIENT`，假设保持独立状态；该节点只提供审批信号，不直接改变权限或执行代码。
 - `SolutionCritiqueAssembler` 不信任模型返回的标识符：只接受 Grounding 中存在的 claim ID，引用必须同时属于该结论的允许集合和最终证据集合。缺失判定标记为 `NOT_EVALUATED`，支持/矛盾判定没有合法引用时降级为 `INSUFFICIENT`。
 - Mock 模式不会用关键词假装完成语义蕴含判断，而是把已关联结论标记为 `NOT_EVALUATED`；DeepSeek 调用或结构化映射失败时也采用同样的保守降级。审查报告随工作流快照持久化，方案驳回重生成后会重新计算，并产生独立 Trace Span。
+- `ClaimEvidenceEvaluator` 使用 12 条人工标注的合成业务样例评估同一个生产 Critic，而不是另写一套测试专用判断逻辑。样例均衡覆盖支持、矛盾和证据不足，组装成一次批量调用并计算评测覆盖率、准确率、各类别召回率、Macro Recall 和混淆矩阵。
+- 评测覆盖率与准确率分开统计：`NOT_EVALUATED` 不进入 Accuracy 分母，但会降低 Coverage 和类别 Recall，避免模型通过漏答困难样例获得虚高分。Mock 模式因此得到 0 Coverage；DeepSeek 调用失败的降级结果也会如实暴露。
 - 模型输出由 Spring AI 的结构化映射约束为 Java Record；规则校验器再做确定性业务校验。
 - `ClarificationQuestion` 将追问建模为类别、问题、选项、推荐值和阻塞标记。模型负责理解语义，Java 策略层负责去重、修复选项并限制最多 4 个阻塞问题。
 - 只有会改变业务结果、权限边界或不可逆影响的问题才能阻塞流程；分页、异步阈值、重试等技术决策进入 `assumptions`，由方案阶段说明。
