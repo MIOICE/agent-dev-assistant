@@ -3,6 +3,7 @@ package com.gaozhaoyang.agent.common;
 import com.gaozhaoyang.agent.coding.CodingTaskException;
 import com.gaozhaoyang.agent.requirement.RequirementAnalysisException;
 import com.gaozhaoyang.agent.solution.SolutionGenerationException;
+import com.gaozhaoyang.agent.solution.EvaluationPersistenceException;
 import com.gaozhaoyang.agent.workflow.InvalidWorkflowStateException;
 import com.gaozhaoyang.agent.workflow.WorkflowNotFoundException;
 import com.gaozhaoyang.agent.workflow.WorkflowPersistenceException;
@@ -93,6 +94,16 @@ public class GlobalExceptionHandler {
     public ApiError handleCodingTask(CodingTaskException exception) {
         return new ApiError(
                 "CODING_TASK_REJECTED",
+                exception.getMessage(),
+                Instant.now()
+        );
+    }
+
+    @ExceptionHandler(EvaluationPersistenceException.class)
+    @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
+    public ApiError handleEvaluationPersistence(EvaluationPersistenceException exception) {
+        return new ApiError(
+                "EVALUATION_STORAGE_UNAVAILABLE",
                 exception.getMessage(),
                 Instant.now()
         );

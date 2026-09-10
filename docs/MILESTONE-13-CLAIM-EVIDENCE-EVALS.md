@@ -27,9 +27,9 @@
   -> API 与前端展示
 ```
 
-接口：`GET /api/solution-critique/evaluation`
+阶段 13 最初通过 `GET /api/solution-critique/evaluation` 触发评测。阶段 14 完成 HTTP 语义修正后，正式运行入口为 `POST /api/solution-critique/evaluation/runs`，原 GET 端点只读取最近一次结果。
 
-DeepSeek 模式会实际执行一次批量模型调用。Mock 模式不会伪造语义分类，12 条结果均为 `NOT_EVALUATED`，因此 Coverage 为 0。
+DeepSeek 模式下，正式运行会实际执行一次批量模型调用。Mock 模式不会伪造语义分类，12 条结果均为 `NOT_EVALUATED`，因此 Coverage 为 0。
 
 ## 指标定义
 

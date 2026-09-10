@@ -37,6 +37,18 @@ spring:
 app:
   ai:
     mode: ${APP_AI_MODE:mock}
+  evaluation:
+    repository: ${EVALUATION_REPOSITORY:file}
+    checkpoint-root: ${EVALUATION_CHECKPOINT_ROOT:F:/agent-workspaces/evaluation-runs}
+    dataset-version: ${CLAIM_EVIDENCE_DATASET_VERSION:claim-evidence-v1}
+    prompt-version: ${CLAIM_EVIDENCE_PROMPT_VERSION:claim-evidence-critic-v1}
+    model-id: ${DEEPSEEK_MODEL:deepseek-v4-flash}
+    gate:
+      minimum-coverage: ${EVALUATION_MIN_COVERAGE:0.95}
+      minimum-accuracy: ${EVALUATION_MIN_ACCURACY:0.85}
+      minimum-macro-recall: ${EVALUATION_MIN_MACRO_RECALL:0.80}
+      minimum-class-recall: ${EVALUATION_MIN_CLASS_RECALL:0.75}
+      maximum-regression: ${EVALUATION_MAX_REGRESSION:0.08}
   knowledge:
     external:
       enabled: ${MES_KNOWLEDGE_ENABLED:false}

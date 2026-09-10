@@ -55,8 +55,12 @@ class ClaimEvidenceEvaluatorTest {
 
     @Test
     void shouldExposeEvaluationEndpoint() throws Exception {
+        ClaimEvidenceEvaluator evaluator = evaluatorWithPredictions();
+        ClaimEvidenceEvaluationRunService runService =
+                runService(evaluator, new InMemoryEvaluationRunRepository());
+        runService.runAndRecord();
         MockMvc mockMvc = standaloneSetup(
-                new SolutionCritiqueEvaluationController(evaluatorWithPredictions())
+                new SolutionCritiqueEvaluationController(runService)
         ).build();
 
         mockMvc.perform(get("/api/solution-critique/evaluation"))
@@ -66,6 +70,23 @@ class ClaimEvidenceEvaluatorTest {
                 .andExpect(jsonPath("$.accuracy").value(0.6667))
                 .andExpect(jsonPath("$.confusionMatrix.CONTRADICTED.INSUFFICIENT").value(1))
                 .andExpect(jsonPath("$.cases").isArray());
+    }
+
+    private ClaimEvidenceEvaluationRunService runService(
+            ClaimEvidenceEvaluator evaluator,
+            EvaluationRunRepository repository
+    ) {
+        ClaimEvidenceEvaluationDataset dataset = new ClaimEvidenceEvaluationDataset(sampleCases());
+        return new ClaimEvidenceEvaluationRunService(
+                evaluator,
+                dataset,
+                repository,
+                new EvaluationGatePolicy(new EvaluationThresholds(0.9, 0.8, 0.7, 0.6, 0.1)),
+                "deepseek",
+                "deepseek-test",
+                "prompt-v1",
+                "dataset-v1"
+        );
     }
 
     private ClaimEvidenceEvaluator evaluatorWithPredictions() {

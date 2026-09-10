@@ -8,7 +8,11 @@ import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Set;
 
@@ -42,6 +46,26 @@ public class ClaimEvidenceEvaluationDataset {
 
     public List<ClaimEvidenceEvaluationCase> findAll() {
         return cases;
+    }
+
+    public String fingerprint() {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            for (ClaimEvidenceEvaluationCase evaluationCase : cases) {
+                String canonical = String.join("\u001f",
+                        evaluationCase.id(),
+                        evaluationCase.claim(),
+                        evaluationCase.evidence(),
+                        evaluationCase.expectedVerdict().name(),
+                        String.join("\u001e", evaluationCase.tags())
+                );
+                digest.update(canonical.getBytes(StandardCharsets.UTF_8));
+                digest.update((byte) '\n');
+            }
+            return HexFormat.of().formatHex(digest.digest());
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("当前JDK不支持SHA-256", exception);
+        }
     }
 
     private static List<ClaimEvidenceEvaluationCase> readCases(

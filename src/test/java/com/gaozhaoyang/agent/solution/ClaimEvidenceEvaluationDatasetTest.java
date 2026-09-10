@@ -28,6 +28,7 @@ class ClaimEvidenceEvaluationDatasetTest {
         assertThat(dataset.findAll())
                 .filteredOn(item -> item.expectedVerdict() == ClaimEvidenceVerdict.INSUFFICIENT)
                 .hasSize(4);
+        assertThat(dataset.fingerprint()).matches("[a-f0-9]{64}");
     }
 
     @Test
