@@ -152,11 +152,15 @@ class RequirementCardValidatorTest {
 
         RequirementCard validated = validator.validate(modelResult);
 
-        assertThat(validated.clarificationQuestions()).hasSize(4);
-        assertThat(validated.missingInformation()).hasSize(4);
+        assertThat(validated.clarificationQuestions()).hasSize(6);
+        assertThat(validated.missingInformation()).hasSize(3);
+        assertThat(validated.assumptions()).hasSize(3);
         assertThat(validated.clarificationQuestions().getFirst().options())
                 .contains("推荐选项");
         assertThat(validated.clarificationQuestions().get(1).recommendedAnswer())
                 .isEqualTo("选项A");
+        assertThat(validated.clarificationQuestions())
+                .allMatch(question -> !question.reason().isBlank())
+                .allMatch(question -> !question.impact().isBlank());
     }
 }

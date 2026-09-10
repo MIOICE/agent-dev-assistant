@@ -30,7 +30,8 @@ public class SpringAiRequirementAnalyzer implements RequirementAnalyzer {
                - options提供2到4个简短选项；
                - recommendedAnswer必须是options中的一个，并给出稳妥的企业默认值；
                - blocking=true只用于不确认就可能做错业务、越权或造成不可逆影响的问题；
-               - 每轮最多4个blocking问题，避免一次向用户提出过多问题。
+               - reason说明“为什么必须问”，impact说明“不同选择会影响什么”；
+               - 每轮优先生成2到3个最高风险的blocking问题，避免一次向用户提出过多问题。
             6. missingInformation：仅用于兼容旧接口，内容必须等于所有blocking问题的question。
             7. assumptions：记录无需阻塞用户的推断和技术默认值，例如异步阈值、分页、重试、日志与编码方式。
             8. priority：
@@ -46,6 +47,7 @@ public class SpringAiRequirementAnalyzer implements RequirementAnalyzer {
 
             - 不得编造用户未提供的页面、字段、数据表或业务规则。
             - 技术实现细节必须由Agent给出推荐默认值并放入assumptions，不能作为阻塞问题。
+            - 能从工具资料、现有权限或当前页面规则推断的信息直接形成assumptions，不得再次要求业务用户确认。
             - 用户已明确接受的推荐值视为已确认，不得换一种说法重复追问。
             - 不主动追问通知文案、水印、快照保留期等次要偏好，除非业务规范明确要求。
             - 涉及删除、写库、权限和敏感数据时，必须明确标记风险。

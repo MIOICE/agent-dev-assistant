@@ -11,7 +11,9 @@ public record ClarificationQuestion(
         String question,
         List<String> options,
         String recommendedAnswer,
-        boolean blocking
+        boolean blocking,
+        String reason,
+        String impact
 ) {
     public ClarificationQuestion {
         category = category == null || category.isBlank() ? "其他" : category.trim();
@@ -22,5 +24,18 @@ public record ClarificationQuestion(
                 .distinct()
                 .toList();
         recommendedAnswer = recommendedAnswer == null ? "" : recommendedAnswer.trim();
+        reason = reason == null ? "" : reason.trim();
+        impact = impact == null ? "" : impact.trim();
+    }
+
+    /** 保持已有测试、旧代码和历史 JSON 的兼容性。 */
+    public ClarificationQuestion(
+            String category,
+            String question,
+            List<String> options,
+            String recommendedAnswer,
+            boolean blocking
+    ) {
+        this(category, question, options, recommendedAnswer, blocking, "", "");
     }
 }

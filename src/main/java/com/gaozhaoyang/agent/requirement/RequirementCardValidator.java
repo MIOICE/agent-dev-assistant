@@ -1,6 +1,7 @@
 package com.gaozhaoyang.agent.requirement;
 
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.List;
 import java.util.ArrayList;
@@ -11,10 +12,19 @@ import java.util.Set;
 @Component
 public class RequirementCardValidator {
 
-    private static final int MAX_BLOCKING_QUESTIONS = 4;
+    private final AdaptiveClarificationPolicy adaptiveClarificationPolicy;
 
     private static final Set<String> ALLOWED_PRIORITIES =
             Set.of("P0", "P1", "P2");
+
+    public RequirementCardValidator() {
+        this(new AdaptiveClarificationPolicy());
+    }
+
+    @Autowired
+    public RequirementCardValidator(AdaptiveClarificationPolicy adaptiveClarificationPolicy) {
+        this.adaptiveClarificationPolicy = adaptiveClarificationPolicy;
+    }
 
     public RequirementCard validate(RequirementCard card) {
         if (card == null) {
@@ -85,7 +95,6 @@ public class RequirementCardValidator {
         }
 
         Map<String, ClarificationQuestion> unique = new LinkedHashMap<>();
-        int blockingCount = 0;
         for (ClarificationQuestion question : source) {
             if (question == null || question.question().isBlank()) {
                 continue;
@@ -102,19 +111,14 @@ public class RequirementCardValidator {
             }
             ClarificationQuestion normalized = new ClarificationQuestion(
                     question.category(), question.question(), options,
-                    recommendedAnswer, question.blocking());
-            if (question.blocking() && blockingCount >= MAX_BLOCKING_QUESTIONS) {
-                continue;
-            }
+                    recommendedAnswer, question.blocking(),
+                    question.reason(), question.impact());
             String key = question.question().replaceAll("[？?。\\s]", "");
             if (!unique.containsKey(key)) {
                 unique.put(key, normalized);
-                if (normalized.blocking()) {
-                    blockingCount++;
-                }
             }
         }
-        return List.copyOf(unique.values());
+        return adaptiveClarificationPolicy.route(List.copyOf(unique.values()));
     }
 
     private List<String> nullToEmpty(List<String> values) {

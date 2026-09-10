@@ -274,6 +274,11 @@ public class RequirementWorkflowService {
                         Map.of(
                                 "input.chars", String.valueOf(effectiveRequirement.length()),
                                 "output.blockingQuestions", String.valueOf(card.missingInformation().size()),
+                                "output.agentDefaults", String.valueOf(card.clarificationQuestions().stream()
+                                        .filter(question -> !question.blocking()).count()),
+                                "output.explainedQuestions", String.valueOf(card.clarificationQuestions().stream()
+                                        .filter(question -> !question.reason().isBlank()
+                                                && !question.impact().isBlank()).count()),
                                 "output.ready", String.valueOf(card.readyForPlanning())
                         )
                 ));

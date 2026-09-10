@@ -59,8 +59,9 @@
 - `ClaimEvidenceEvaluationRunService` 把生产 Critic 输出封装成不可变 Eval Run，记录模型、Prompt、数据集逻辑版本和内容 SHA-256；`FileEvaluationRunRepository` 使用临时文件加原子替换持久化，运行接口使用 POST，历史接口只读。
 - `EvaluationGatePolicy` 同时检查 Coverage、Accuracy、Macro Recall、最低分类 Recall 的绝对阈值，并与最近一次通过门禁的基线比较；任一指标下降超过预算即拒绝发布。Mock 或降级到零评估的运行是 `NOT_EVALUATED`，既不能通过门禁，也不会污染后续基线。
 - 模型输出由 Spring AI 的结构化映射约束为 Java Record；规则校验器再做确定性业务校验。
-- `ClarificationQuestion` 将追问建模为类别、问题、选项、推荐值和阻塞标记。模型负责理解语义，Java 策略层负责去重、修复选项并限制最多 4 个阻塞问题。
-- 只有会改变业务结果、权限边界或不可逆影响的问题才能阻塞流程；分页、异步阈值、重试等技术决策进入 `assumptions`，由方案阶段说明。
+- `ClarificationQuestion` 将追问建模为类别、问题、选项、推荐值、阻塞标记、提问原因和决策影响。模型负责语义理解，Java 策略层负责去重、补全解释、修复推荐选项和最终路由。
+- `AdaptiveClarificationPolicy` 先识别线程池、索引、分页、重试等技术问题并转为可复核默认假设，再按删除/不可恢复、权限、全量范围等风险加权排序，每轮选出最高价值的 2 至 3 个业务问题。超过预算且存在安全推荐值的问题转为假设；没有推荐值的问题不会因数量限制被静默跳过。
+- 只有会改变业务结果、权限边界或不可逆影响的问题才能阻塞流程；模型工具已经找到的规则以及分页、异步阈值、重试等技术决策进入 `assumptions`，由方案阶段和人工审批复核。
 - 人工审批是安全边界。驳回意见会进入下一次方案生成提示词，形成 Human-in-the-loop 闭环。
 - 模型、检索或方案生成失败时，接口返回 `FAILED` 工作流而不是丢失上下文；详细异常写入服务日志，对前端只展示安全错误信息。
 - 每个核心节点产生一个与 OpenTelemetry Span 结构相近的 `AgentTraceSpan`，记录 `traceId`、`spanId`、操作名、状态、起止时间、耗时和安全属性，并随工作流快照持久化。

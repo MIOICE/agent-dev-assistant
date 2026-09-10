@@ -2,6 +2,7 @@ package com.gaozhaoyang.agent.requirement;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -9,6 +10,17 @@ import java.util.List;
 @Service
 @ConditionalOnProperty(name = "app.ai.mode", havingValue = "mock", matchIfMissing = true)
 public class RuleBasedRequirementAnalyzer implements RequirementAnalyzer {
+
+    private final RequirementCardValidator validator;
+
+    public RuleBasedRequirementAnalyzer() {
+        this(new RequirementCardValidator());
+    }
+
+    @Autowired
+    public RuleBasedRequirementAnalyzer(RequirementCardValidator validator) {
+        this.validator = validator;
+    }
 
     @Override
     public RequirementCard analyze(String content) {
@@ -129,7 +141,7 @@ if (normalized.contains("批量修改")) {
                 .filter(ClarificationQuestion::blocking)
                 .map(ClarificationQuestion::question)
                 .toList();
-        return new RequirementCard(
+        return validator.validate(new RequirementCard(
                 title,
                 normalized,
                 modules,
@@ -141,7 +153,7 @@ if (normalized.contains("批量修改")) {
                 questions,
                 assumptions,
                 missing.isEmpty()
-        );
+        ));
     }
 
     private ClarificationQuestion blockingQuestion(

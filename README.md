@@ -6,7 +6,7 @@
 
 - 需求结构化：标题、背景、模块、验收标准、缺失信息、优先级、风险。
 - 多轮澄清：信息不足时暂停，补充后使用同一 `workflowId` 恢复。
-- 业务友好澄清：将问题分为阻塞项与非阻塞假设，每轮最多展示 4 个关键问题，支持选项式回答和一键采用 Agent 推荐值。
+- 自适应业务澄清：确定性问题路由器将线程池、索引、重试等技术问题降级为可复核假设，按删除、权限、范围等业务风险排序，每轮优先展示 2 至 3 个关键决策；每题说明提问原因和影响，支持选项式回答及一键采用推荐值，没有安全默认值时绝不静默跳过。
 - Agentic RAG：由 DeepSeek 将明确需求拆成 1 至 5 项可验证的证据需求，Harness 在最多 2 轮、6 次查询预算内执行本地 BGE 混合检索；未命中时改写查询，并持久化规划、检索轨迹、证据与缺口。Mock 模式使用可解释规则规划，模型规划失败时也会安全降级。
 - 方案证据绑定：把摘要、后端、数据库、API、安全、性能、测试和回滚结论逐项关联到证据计划实际命中的 Chunk；引用不存在或专项证据缺失时标记为未支撑，待确认内容单独标记为假设，并计算不含假设的证据关联率。
 - Claim–Evidence Critic：DeepSeek 通过一次批量调用判断原子结论与引用证据之间是支持、矛盾还是证据不足；Java 再校验 claim ID、证据 ID 白名单和结果完整性，非法引用自动降级，模型不可用时保留“未评估”状态交由人工复核。
@@ -268,5 +268,7 @@ Claim–Evidence 语义审查与确定性后校验见 [docs/MILESTONE-12-CLAIM-E
 Claim–Evidence 人工金标评测见 [docs/MILESTONE-13-CLAIM-EVIDENCE-EVALS.md](docs/MILESTONE-13-CLAIM-EVIDENCE-EVALS.md)。
 
 版本化 Evals、通过基线与发布门禁见 [docs/MILESTONE-14-VERSIONED-EVAL-GATE.md](docs/MILESTONE-14-VERSIONED-EVAL-GATE.md)。
+
+自适应业务澄清与问题路由见 [docs/MILESTONE-15-ADAPTIVE-CLARIFICATION.md](docs/MILESTONE-15-ADAPTIVE-CLARIFICATION.md)。
 
 累计面试复述与追问答案见 [docs/INTERVIEW-GUIDE.md](docs/INTERVIEW-GUIDE.md)。

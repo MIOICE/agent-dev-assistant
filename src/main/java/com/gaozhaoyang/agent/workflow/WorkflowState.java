@@ -88,11 +88,21 @@ public record WorkflowState(
     }
 
     public WorkflowState waitForClarification() {
+        long blockingQuestions = requirementCard == null ? 0 : requirementCard
+                .clarificationQuestions().stream()
+                .filter(question -> question.blocking())
+                .count();
+        long agentDefaults = requirementCard == null ? 0 : requirementCard
+                .clarificationQuestions().stream()
+                .filter(question -> !question.blocking())
+                .count();
         return transition(WorkflowStage.WAITING_CLARIFICATION, requirementCard,
                 knowledgeResults, evidenceResearch, technicalSolution, solutionGrounding,
                 solutionCritique,
                 clarifications, solutionFeedbacks, null,
-                WorkflowEventType.CLARIFICATION_REQUESTED, "需求信息不足，等待用户补充");
+                WorkflowEventType.CLARIFICATION_REQUESTED,
+                "等待用户确认 " + blockingQuestions + " 项关键业务选择，Agent已处理 "
+                        + agentDefaults + " 项默认决策");
     }
 
     public WorkflowState completeKnowledgeRetrieval(EvidenceResearchReport report) {
