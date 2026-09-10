@@ -12,8 +12,11 @@ import com.gaozhaoyang.agent.requirement.RequirementAnalyzer;
 import com.gaozhaoyang.agent.requirement.ClarificationQuestion;
 import com.gaozhaoyang.agent.requirement.RequirementCard;
 import com.gaozhaoyang.agent.solution.SolutionGenerator;
+import com.gaozhaoyang.agent.solution.SolutionCritiqueReport;
+import com.gaozhaoyang.agent.solution.SolutionEvidenceCritic;
 import com.gaozhaoyang.agent.solution.SolutionGroundingReport;
 import com.gaozhaoyang.agent.solution.SolutionGroundingService;
+import com.gaozhaoyang.agent.solution.RuleBasedSolutionEvidenceCritic;
 import com.gaozhaoyang.agent.solution.TechnicalSolution;
 
 import java.util.List;
@@ -30,6 +33,7 @@ public class RequirementWorkflowService {
     private final EvidenceResearcher evidenceResearcher;
     private final SolutionGenerator solutionGenerator;
     private final SolutionGroundingService solutionGroundingService;
+    private final SolutionEvidenceCritic solutionEvidenceCritic;
     private final WorkflowRepository workflowRepository;
 
     @Autowired
@@ -38,12 +42,14 @@ public class RequirementWorkflowService {
             EvidenceResearcher evidenceResearcher,
             SolutionGenerator solutionGenerator,
             SolutionGroundingService solutionGroundingService,
+            SolutionEvidenceCritic solutionEvidenceCritic,
             WorkflowRepository workflowRepository
     ) {
         this.requirementAnalyzer = requirementAnalyzer;
         this.evidenceResearcher = evidenceResearcher;
         this.solutionGenerator = solutionGenerator;
         this.solutionGroundingService = solutionGroundingService;
+        this.solutionEvidenceCritic = solutionEvidenceCritic;
         this.workflowRepository = workflowRepository;
     }
 
@@ -58,6 +64,7 @@ public class RequirementWorkflowService {
                 new SingleQueryEvidenceResearcher(knowledgeSearcher),
                 solutionGenerator,
                 new SolutionGroundingService(),
+                new RuleBasedSolutionEvidenceCritic(),
                 workflowRepository
         );
     }
@@ -213,8 +220,20 @@ public class RequirementWorkflowService {
                     activeOperationStartedAt,
                     groundingAttributes(grounding)
             ));
+            activeOperation = "agent.claim-evidence-critic";
+            activeOperationStartedAt = Instant.now();
+            SolutionCritiqueReport critique = solutionEvidenceCritic.critique(
+                    grounding,
+                    rejectedState.knowledgeResults()
+            );
+            rejectedState = rejectedState.addTraceSpan(AgentTraceSpan.success(
+                    rejectedState.workflowId(),
+                    activeOperation,
+                    activeOperationStartedAt,
+                    critiqueAttributes(critique)
+            ));
             return workflowRepository.save(
-                    rejectedState.completeSolutionGeneration(regenerated, grounding)
+                    rejectedState.completeSolutionGeneration(regenerated, grounding, critique)
             );
         } catch (WorkflowPersistenceException exception) {
             throw exception;
@@ -367,9 +386,33 @@ public class RequirementWorkflowService {
                 throw exception;
             }
 
-            // 8. 方案生成完成后进入人工审批，不能由Agent直接执行高风险操作
+            // 8. 批量检查每条结论是否被证据支持；Java再次校验claimId与证据ID
+            Instant critiqueStartedAt = Instant.now();
+            SolutionCritiqueReport critique;
+            try {
+                critique = solutionEvidenceCritic.critique(
+                        grounding,
+                        evidenceReport.evidence()
+                );
+                currentState = currentState.addTraceSpan(AgentTraceSpan.success(
+                        currentState.workflowId(),
+                        "agent.claim-evidence-critic",
+                        critiqueStartedAt,
+                        critiqueAttributes(critique)
+                ));
+            } catch (RuntimeException exception) {
+                currentState = currentState.addTraceSpan(AgentTraceSpan.error(
+                        currentState.workflowId(),
+                        "agent.claim-evidence-critic",
+                        critiqueStartedAt,
+                        exception
+                ));
+                throw exception;
+            }
+
+            // 9. 审查信号随快照持久化，再进入人工审批；Agent不直接执行高风险操作
             return workflowRepository.save(
-                    currentState.completeSolutionGeneration(technicalSolution, grounding)
+                    currentState.completeSolutionGeneration(technicalSolution, grounding, critique)
             );
         } catch (WorkflowPersistenceException exception) {
             throw exception;
@@ -388,6 +431,18 @@ public class RequirementWorkflowService {
                 "claims.assumptions", String.valueOf(grounding.assumptionClaims()),
                 "grounding.rate", String.valueOf(grounding.groundingRate()),
                 "evidence.sufficient", String.valueOf(grounding.evidenceSufficient())
+        );
+    }
+
+    private Map<String, String> critiqueAttributes(SolutionCritiqueReport critique) {
+        return Map.of(
+                "critic.mode", critique.mode(),
+                "claims.supported", String.valueOf(critique.supportedClaims()),
+                "claims.contradicted", String.valueOf(critique.contradictedClaims()),
+                "claims.insufficient", String.valueOf(critique.insufficientClaims()),
+                "claims.notEvaluated", String.valueOf(critique.notEvaluatedClaims()),
+                "support.rate", String.valueOf(critique.supportRate()),
+                "safeForApproval", String.valueOf(critique.safeForApproval())
         );
     }
 

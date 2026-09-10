@@ -116,13 +116,16 @@ class RequirementWorkflowServiceTest {
         assertThat(state.evidenceResearch().sufficient()).isTrue();
         assertThat(state.solutionGrounding().unsupportedClaims()).isZero();
         assertThat(state.solutionGrounding().evidenceLinkedClaims()).isGreaterThan(0);
+        assertThat(state.solutionCritique().mode()).isEqualTo("RULE_BASED_NOT_EVALUATED");
+        assertThat(state.solutionCritique().notEvaluatedClaims()).isGreaterThan(0);
         assertThat(state.traceSpans())
                 .extracting(AgentTraceSpan::operation)
                 .containsExactly(
                         "agent.requirement-analysis",
                         "rag.agentic-evidence-research",
                         "agent.solution-generation",
-                        "agent.solution-grounding"
+                        "agent.solution-grounding",
+                        "agent.claim-evidence-critic"
                 );
         assertThat(state.traceSpans()).allMatch(span -> "SUCCESS".equals(span.status()));
     }
@@ -324,6 +327,9 @@ class RequirementWorkflowServiceTest {
         assertThat(regenerated.traceSpans())
                 .filteredOn(span -> "agent.solution-grounding".equals(span.operation()))
                 .hasSize(2);
+        assertThat(regenerated.traceSpans())
+                .filteredOn(span -> "agent.claim-evidence-critic".equals(span.operation()))
+                .hasSize(2);
         assertThat(regenerated.events()).extracting(WorkflowEvent::type)
                 .contains(WorkflowEventType.REJECTED, WorkflowEventType.SOLUTION_GENERATED);
     }
@@ -388,7 +394,7 @@ class RequirementWorkflowServiceTest {
         WorkflowMetrics metrics = service.metrics();
 
         assertThat(trace.traceId()).isEqualTo(second.workflowId());
-        assertThat(trace.spanCount()).isEqualTo(4);
+        assertThat(trace.spanCount()).isEqualTo(5);
         assertThat(trace.failedSpanCount()).isZero();
         assertThat(metrics.totalWorkflows()).isEqualTo(2);
         assertThat(metrics.firstPassReadyRate()).isEqualTo(1);

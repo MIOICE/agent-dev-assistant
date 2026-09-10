@@ -27,6 +27,10 @@ class DashboardKnowledgeUiTest {
                 .contains("方案证据绑定")
                 .contains("renderSolutionGrounding(w.solutionGrounding")
                 .contains("agent.solution-grounding")
+                .contains("Claim–Evidence 语义审查")
+                .contains("renderSolutionCritique(w.solutionCritique")
+                .contains("agent.claim-evidence-critic")
+                .contains("未执行模型语义判定，请人工复核")
                 .doesNotContain(
                         "<section id=\"knowledgePanel\" "
                                 + "class=\"panel knowledge hidden\">"

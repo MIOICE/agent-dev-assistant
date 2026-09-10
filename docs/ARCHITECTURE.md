@@ -21,6 +21,8 @@
   -> 生成结构化技术方案
   -> Grounding 节点将方案结论绑定到证据目标命中的真实 Chunk
   -> 不存在来源的结论标为 UNSUPPORTED，待确认内容标为 ASSUMPTION
+  -> Claim-Evidence Critic 批量判断证据支持、矛盾或不足
+  -> Java 校验结论 ID、证据 ID 与返回完整性，异常时降级为待人工复核
   -> WAITING_APPROVAL
   -> 通过：COMPLETED
   -> 驳回：携带审批意见重新生成方案
@@ -49,6 +51,9 @@
 - `SolutionGroundingService` 把方案拆为摘要、后端、数据库、API、安全、性能、测试、回滚和假设等原子结论，再依据 EvidenceNeed 与实际命中的 Chunk ID 建立来源关系。只有最终证据集合中真实存在的 ID 才能成为引用，避免模型或中间状态产生无效来源。
 - 证据绑定状态分为 `EVIDENCE_LINKED`、`ASSUMPTION` 和 `UNSUPPORTED`。关联率只统计事实性结论，不用把假设混入分母；报告随工作流快照持久化，重新生成方案时会重新计算，并产生独立 Trace Span。
 - 当前 Grounding 验证的是来源可追溯性，不把检索相关性包装成事实蕴含。工作台明确提示“已关联证据不等于已证明”，人工审批仍负责检查证据是否真的支持结论。
+- `SpringAiSolutionEvidenceCritic` 将结论清单与去重证据字典一次性提交 DeepSeek，避免为每条结论重复传输相同 Chunk。模型输出 `SUPPORTED`、`CONTRADICTED` 或 `INSUFFICIENT`，假设保持独立状态；该节点只提供审批信号，不直接改变权限或执行代码。
+- `SolutionCritiqueAssembler` 不信任模型返回的标识符：只接受 Grounding 中存在的 claim ID，引用必须同时属于该结论的允许集合和最终证据集合。缺失判定标记为 `NOT_EVALUATED`，支持/矛盾判定没有合法引用时降级为 `INSUFFICIENT`。
+- Mock 模式不会用关键词假装完成语义蕴含判断，而是把已关联结论标记为 `NOT_EVALUATED`；DeepSeek 调用或结构化映射失败时也采用同样的保守降级。审查报告随工作流快照持久化，方案驳回重生成后会重新计算，并产生独立 Trace Span。
 - 模型输出由 Spring AI 的结构化映射约束为 Java Record；规则校验器再做确定性业务校验。
 - `ClarificationQuestion` 将追问建模为类别、问题、选项、推荐值和阻塞标记。模型负责理解语义，Java 策略层负责去重、修复选项并限制最多 4 个阻塞问题。
 - 只有会改变业务结果、权限边界或不可逆影响的问题才能阻塞流程；分页、异步阈值、重试等技术决策进入 `assumptions`，由方案阶段说明。
