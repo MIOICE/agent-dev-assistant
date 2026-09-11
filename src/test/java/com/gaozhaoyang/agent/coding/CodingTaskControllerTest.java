@@ -35,6 +35,10 @@ class CodingTaskControllerTest {
                         .param("workflowId", "workflow-1"))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.taskId").value("task-1"))
-                .andExpect(jsonPath("$.stage").value("QUEUED"));
+                .andExpect(jsonPath("$.stage").value("QUEUED"))
+                .andExpect(jsonPath("$.budget.maxAgentSteps").value(8))
+                .andExpect(jsonPath("$.agentLoop.maxSteps").value(8))
+                .andExpect(jsonPath("$.agentLoop.consumedSteps").value(0))
+                .andExpect(jsonPath("$.agentLoop.stopCode").value("NONE"));
     }
 }

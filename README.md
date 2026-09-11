@@ -23,6 +23,7 @@
 - 可视化操作台：历史工作流、页面恢复、澄清、审批、驳回、重试、知识库评测。
 - Trace 与运行评测：持久化需求分析、RAG、方案生成等节点的状态、耗时和统计属性，展示首轮就绪率、平均澄清轮数、推荐值采纳率及完成率。
 - Durable Coding Agent：API 提交后立即进入有界后台队列；从已审批技术方案生成受限 Java 补丁，在无网络 Docker 沙箱中离线测试，失败时依据构建证据最多自动修复两轮，并通过文件 Checkpoint 支持服务重启恢复。
+- 受控 Agent Loop：将编码过程显式建模为“观察状态→选择行动→执行→验证结果”，逐步记录生成、沙箱测试、证据修复和人工审批轨迹；同时限制最多 8 个 Agent 步骤，并通过补丁与失败证据 SHA-256 指纹识别重复行动，在无进展、执行预算耗尽或需要人工审批时明确停止。
 - Agent Skills：以标准 `SKILL.md` 封装 Java 生成、失败修复、安全复核和导出可靠性方法；先按生成/修复阶段缩小候选集，再用本地 BGE 语义相似度按需加载正文，并记录路由分数与任务级激活轨迹。
 - Skill 供应链防护：启动时校验技能名称、阶段、宿主工具白名单、内容大小和 SHA-256 受信任清单；摘要不一致或越权声明会直接拒绝启动。
 - 安全发布：每轮修复保持文件集合不变，持续执行路径、危险能力和自治预算校验；最终通过统一 Diff、SHA-256 与二次人工审批输出独立产物。
@@ -270,5 +271,7 @@ Claim–Evidence 人工金标评测见 [docs/MILESTONE-13-CLAIM-EVIDENCE-EVALS.m
 版本化 Evals、通过基线与发布门禁见 [docs/MILESTONE-14-VERSIONED-EVAL-GATE.md](docs/MILESTONE-14-VERSIONED-EVAL-GATE.md)。
 
 自适应业务澄清与问题路由见 [docs/MILESTONE-15-ADAPTIVE-CLARIFICATION.md](docs/MILESTONE-15-ADAPTIVE-CLARIFICATION.md)。
+
+受控 Agent Loop、步骤预算与无进展检测见 [docs/MILESTONE-16-CONTROLLED-AGENT-LOOP.md](docs/MILESTONE-16-CONTROLLED-AGENT-LOOP.md)。
 
 累计面试复述与追问答案见 [docs/INTERVIEW-GUIDE.md](docs/INTERVIEW-GUIDE.md)。

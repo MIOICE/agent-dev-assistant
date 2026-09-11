@@ -40,12 +40,23 @@ class CodingTaskServiceTest {
         assertThat(generated.activatedSkills())
                 .containsExactly("java-code-generation", "security-review");
         assertThat(generated.buildAttempts()).hasSize(1);
+        assertThat(generated.agentLoop().steps())
+                .extracting(AgentLoopStep::action)
+                .containsExactly(
+                        AgentLoopAction.GENERATE_PATCH,
+                        AgentLoopAction.RUN_SANDBOX_TEST,
+                        AgentLoopAction.REQUEST_HUMAN_APPROVAL
+                );
+        assertThat(generated.agentLoop().stopCode())
+                .isEqualTo(AgentLoopStopCode.WAITING_HUMAN_APPROVAL);
         assertThat(generated.patches())
                 .allSatisfy(patch -> assertThat(patch.unifiedDiff()).contains("+++ b/"));
 
         CodingTask published = service.approve(generated.taskId(), "代码与测试已复核");
 
         assertThat(published.stage()).isEqualTo(CodingTaskStage.PUBLISHED);
+        assertThat(published.agentLoop().stopCode())
+                .isEqualTo(AgentLoopStopCode.GOAL_REACHED);
         assertThat(Path.of(published.approvedOutputPath())).isDirectory();
         assertThat(Path.of(published.approvedOutputPath())
                 .resolve("src/main/java/demo/generated/OrderExportPolicy.java"))
@@ -63,7 +74,7 @@ class CodingTaskServiceTest {
         };
         CodePatchRepairer repairer = (workflow, plan, failure, attempt, skills) -> {
             repairCalls.incrementAndGet();
-            return new CodePatchPlan("自动修复后的代码方案", plan.files());
+            return changedPlan(plan, attempt);
         };
         CodingTaskService service = service(
                 root, runner, repairer, WorkflowStage.COMPLETED,
@@ -82,6 +93,17 @@ class CodingTaskServiceTest {
         assertThat(task.patches()).allSatisfy(
                 patch -> assertThat(patch.operation()).isEqualTo("MODIFY"));
         assertThat(repairCalls).hasValue(1);
+        assertThat(task.agentLoop().stopCode())
+                .isEqualTo(AgentLoopStopCode.WAITING_HUMAN_APPROVAL);
+        assertThat(task.agentLoop().steps())
+                .extracting(AgentLoopStep::action)
+                .containsExactly(
+                        AgentLoopAction.GENERATE_PATCH,
+                        AgentLoopAction.RUN_SANDBOX_TEST,
+                        AgentLoopAction.REPAIR_PATCH,
+                        AgentLoopAction.RUN_SANDBOX_TEST,
+                        AgentLoopAction.REQUEST_HUMAN_APPROVAL
+                );
     }
 
     @Test
@@ -90,7 +112,7 @@ class CodingTaskServiceTest {
         AtomicInteger repairCalls = new AtomicInteger();
         CodePatchRepairer repairer = (workflow, plan, failure, attempt, skills) -> {
             repairCalls.incrementAndGet();
-            return plan;
+            return changedPlan(plan, attempt);
         };
         CodingTaskService service = service(
                 root,
@@ -109,9 +131,38 @@ class CodingTaskServiceTest {
         assertThat(failed.buildAttempts()).hasSize(3);
         assertThat(failed.failureMessage()).contains("最大自动修复次数");
         assertThat(repairCalls).hasValue(2);
+        assertThat(failed.agentLoop().stopCode())
+                .isEqualTo(AgentLoopStopCode.EXECUTION_BUDGET_EXHAUSTED);
         assertThatThrownBy(() -> service.approve(failed.taskId(), "force"))
                 .isInstanceOf(CodingTaskException.class)
                 .hasMessageContaining("测试通过");
+    }
+
+    @Test
+    void shouldStopWhenRepairDoesNotChangePatch() {
+        Path root = testRoot();
+        AtomicInteger buildCalls = new AtomicInteger();
+        CodingTaskService service = service(
+                root,
+                (workspace, budget) -> {
+                    buildCalls.incrementAndGet();
+                    return verification(false, "same compile failure");
+                },
+                (workflow, plan, failure, attempt, skills) -> plan,
+                WorkflowStage.COMPLETED,
+                new InMemoryCodingTaskRepository(),
+                Runnable::run
+        );
+
+        CodingTask failed = service.submit("workflow-1");
+
+        assertThat(failed.stage()).isEqualTo(CodingTaskStage.FAILED);
+        assertThat(failed.agentLoop().stopCode())
+                .isEqualTo(AgentLoopStopCode.NO_PROGRESS);
+        assertThat(failed.failureMessage()).contains("重复补丁");
+        assertThat(failed.consumedBuildExecutions()).isEqualTo(1);
+        assertThat(buildCalls).hasValue(1);
+        assertThat(failed.agentLoop().steps().getLast().progressMade()).isFalse();
     }
 
     @Test
@@ -222,6 +273,17 @@ class CodingTaskServiceTest {
     private static BuildVerification verification(boolean passed, String output) {
         return new BuildVerification(
                 passed, "docker test", passed ? 0 : 1, 20, output);
+    }
+
+    private static CodePatchPlan changedPlan(CodePatchPlan plan, int attempt) {
+        List<GeneratedFile> changed = plan.files().stream()
+                .map(file -> new GeneratedFile(
+                        file.relativePath(),
+                        file.purpose(),
+                        file.content() + "\n// bounded repair " + attempt
+                ))
+                .toList();
+        return new CodePatchPlan("自动修复后的代码方案", changed);
     }
 
     private static WorkflowState completedWorkflow() {

@@ -28,6 +28,14 @@ class FileCodingTaskRepositoryTest {
                 WorkflowStage.COMPLETED, null, List.of(), null, null, null, null, List.of(),
                 List.of(), 1, now, now, List.of(), null
         );
+        AgentLoopState agentLoop = AgentLoopState.initial(8).record(
+                AgentLoopAction.GENERATE_PATCH,
+                "技术方案已审批",
+                "生成最小补丁",
+                "生成两个文件",
+                "generate-fingerprint",
+                true
+        );
         CodingTask checkpoint = new CodingTask(
                 "task-1", "workflow-1", workflowSnapshot, CodingTaskStage.VERIFYING,
                 "代码已生成", AutonomyBudget.safeDefault(),
@@ -35,6 +43,7 @@ class FileCodingTaskRepositoryTest {
                 List.of("java-code-generation"),
                 List.of(), null, List.of(),
                 List.of(CodingTaskEvent.of("BUILD_STARTED", "开始测试")),
+                agentLoop,
                 "workspace-1", "", "", now, now
         );
 
@@ -48,5 +57,10 @@ class FileCodingTaskRepositoryTest {
                 .contains(checkpoint);
         assertThat(restartedProcess.findByStages(Set.of(CodingTaskStage.VERIFYING)))
                 .containsExactly(checkpoint);
+        assertThat(restartedProcess.findById("task-1").orElseThrow().agentLoop().steps())
+                .hasSize(1)
+                .first()
+                .extracting(AgentLoopStep::fingerprint)
+                .isEqualTo("generate-fingerprint");
     }
 }

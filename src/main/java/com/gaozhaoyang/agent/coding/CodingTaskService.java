@@ -22,6 +22,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.HexFormat;
@@ -177,7 +178,7 @@ public class CodingTaskService {
                 Files.copy(source, target, StandardCopyOption.COPY_ATTRIBUTES);
             }
             String normalizedComment = comment == null ? "" : comment.trim();
-            return taskRepository.save(evolve(
+            CodingTask published = evolve(
                     current, CodingTaskStage.PUBLISHED, current.summary(),
                     current.consumedFiles(), current.consumedBytes(),
                     current.consumedBuildExecutions(), current.consumedDurationMs(),
@@ -187,6 +188,13 @@ public class CodingTaskService {
                                     ? "人工审批通过，产物已复制到批准目录"
                                     : "人工审批通过：" + normalizedComment),
                     current.workspaceId(), output.toString(), ""
+            );
+            return taskRepository.save(withAgentLoop(
+                    published,
+                    published.agentLoop().stop(
+                            AgentLoopStopCode.GOAL_REACHED,
+                            "人工审批完成，隔离代码产物已发布"
+                    )
             ));
         } catch (IOException exception) {
             throw new CodingTaskException("批准产物写入失败", exception);
@@ -254,7 +262,18 @@ public class CodingTaskService {
                     workspaceId, "", ""
             ));
 
-            executeRepairLoop(current, workflow, workspace, plan);
+            current = recordAgentLoopStep(
+                    current,
+                    AgentLoopAction.GENERATE_PATCH,
+                    "技术方案已经人工审批，沙箱工作区为空",
+                    "先生成满足已审批方案的最小Java补丁，再交给策略层和沙箱验证",
+                    "生成并通过路径、能力、文件数和字节数校验："
+                            + patches.size() + "个文件",
+                    actionFingerprint("GENERATE", planFingerprint(plan)),
+                    true
+            );
+
+            executeControlledAgentLoop(current, workflow, workspace, plan);
         } catch (IOException exception) {
             CodingTask latest = taskRepository.findById(taskId).orElse(current);
             fail(latest, "沙箱文件操作失败", latest.verification());
@@ -269,7 +288,7 @@ public class CodingTaskService {
         }
     }
 
-    private void executeRepairLoop(
+    private void executeControlledAgentLoop(
             CodingTask startingTask,
             WorkflowState workflow,
             Path workspace,
@@ -279,12 +298,28 @@ public class CodingTaskService {
         CodePatchPlan plan = startingPlan;
 
         while (true) {
+            if (current.agentLoop().exhausted()) {
+                stopTask(
+                        current,
+                        AgentLoopStopCode.STEP_BUDGET_EXHAUSTED,
+                        "Agent Loop步骤预算已耗尽，任务安全停止",
+                        current.verification(),
+                        "LOOP_STOPPED"
+                );
+                return;
+            }
             long remainingDuration = current.budget().maxDurationMs()
                     - current.consumedDurationMs();
             if (remainingDuration <= 0
                     || current.consumedBuildExecutions()
                     >= current.budget().maxBuildExecutions()) {
-                fail(current, "代码任务已耗尽自治预算", current.verification());
+                stopTask(
+                        current,
+                        AgentLoopStopCode.EXECUTION_BUDGET_EXHAUSTED,
+                        "代码任务已耗尽构建次数或执行时长预算",
+                        current.verification(),
+                        "BUDGET_EXHAUSTED"
+                );
                 return;
             }
 
@@ -310,7 +345,57 @@ public class CodingTaskService {
             List<BuildAttempt> attempts = new ArrayList<>(current.buildAttempts());
             attempts.add(new BuildAttempt(buildNumber, verification, Instant.now()));
 
+            String buildFingerprint = actionFingerprint(
+                    "BUILD",
+                    planFingerprint(plan),
+                    String.valueOf(verification.passed()),
+                    String.valueOf(verification.exitCode()),
+                    verification.outputSummary()
+            );
+            boolean repeatedBuild = current.agentLoop().hasFingerprint(buildFingerprint);
+            current = taskRepository.save(evolve(
+                    current, CodingTaskStage.VERIFYING, plan.summary(),
+                    current.consumedFiles(), current.consumedBytes(), buildNumber,
+                    consumedDuration, current.repairAttempts(), current.patches(),
+                    verification, attempts,
+                    appendEvent(current.events(), "BUILD_COMPLETED",
+                            "第 " + buildNumber + " 次沙箱测试"
+                                    + (verification.passed() ? "通过" : "失败")),
+                    current.workspaceId(), "", ""
+            ));
+            current = recordAgentLoopStep(
+                    current,
+                    AgentLoopAction.RUN_SANDBOX_TEST,
+                    buildNumber == 1
+                            ? "候选补丁尚未在隔离环境中验证"
+                            : "上一轮补丁已根据失败证据修订，需要重新验证",
+                    "真实编译和测试结果比模型自评更可靠",
+                    verification.passed()
+                            ? "Docker沙箱测试通过，exit code 0"
+                            : "Docker沙箱测试失败，exit code " + verification.exitCode(),
+                    buildFingerprint,
+                    verification.passed() || !repeatedBuild
+            );
+
             if (verification.passed()) {
+                if (!current.agentLoop().exhausted()) {
+                    current = recordAgentLoopStep(
+                            current,
+                            AgentLoopAction.REQUEST_HUMAN_APPROVAL,
+                            "候选补丁已经通过隔离构建与自动化测试",
+                            "代码执行属于高风险副作用，发布前必须由人检查Diff和测试证据",
+                            "Agent暂停自主执行，等待人工审批",
+                            actionFingerprint("APPROVAL", planFingerprint(plan)),
+                            true
+                    );
+                }
+                current = withAgentLoop(
+                        current,
+                        current.agentLoop().stop(
+                                AgentLoopStopCode.WAITING_HUMAN_APPROVAL,
+                                "沙箱测试通过，等待人工审批后发布"
+                        )
+                );
                 taskRepository.save(evolve(
                         current, CodingTaskStage.WAITING_APPROVAL, plan.summary(),
                         current.consumedFiles(), current.consumedBytes(), buildNumber,
@@ -323,18 +408,37 @@ public class CodingTaskService {
                 return;
             }
 
+            if (repeatedBuild || current.agentLoop().consecutiveNoProgress() >= 2) {
+                stopTask(
+                        current,
+                        AgentLoopStopCode.NO_PROGRESS,
+                        "检测到相同补丁产生相同失败证据，停止无进展循环",
+                        verification,
+                        "NO_PROGRESS_DETECTED"
+                );
+                return;
+            }
+
             if (buildNumber >= current.budget().maxBuildExecutions()
                     || consumedDuration >= current.budget().maxDurationMs()) {
-                taskRepository.save(evolve(
-                        current, CodingTaskStage.FAILED, plan.summary(),
-                        current.consumedFiles(), current.consumedBytes(), buildNumber,
-                        consumedDuration, current.repairAttempts(), current.patches(),
-                        verification, attempts,
-                        appendEvent(current.events(), "BUDGET_EXHAUSTED",
-                                "沙箱测试仍未通过，自治预算已耗尽"),
-                        current.workspaceId(), "",
-                        "达到最大自动修复次数，任务已安全停止"
-                ));
+                stopTask(
+                        current,
+                        AgentLoopStopCode.EXECUTION_BUDGET_EXHAUSTED,
+                        "达到最大自动修复次数，任务已安全停止",
+                        verification,
+                        "BUDGET_EXHAUSTED"
+                );
+                return;
+            }
+
+            if (current.agentLoop().exhausted()) {
+                stopTask(
+                        current,
+                        AgentLoopStopCode.STEP_BUDGET_EXHAUSTED,
+                        "没有剩余Agent Loop步骤用于安全修复",
+                        verification,
+                        "LOOP_STOPPED"
+                );
                 return;
             }
 
@@ -359,6 +463,36 @@ public class CodingTaskService {
                     current.budget()
             );
             ensureSamePaths(plan, repaired);
+            String previousPlanFingerprint = planFingerprint(plan);
+            String repairedPlanFingerprint = planFingerprint(repaired);
+            String repairFingerprint = actionFingerprint(
+                    "REPAIR", previousPlanFingerprint, repairedPlanFingerprint,
+                    verification.outputSummary()
+            );
+            boolean repairChangedFiles = !previousPlanFingerprint.equals(repairedPlanFingerprint);
+            boolean repeatedRepair = current.agentLoop().hasFingerprint(repairFingerprint);
+            current = recordAgentLoopStep(
+                    current,
+                    AgentLoopAction.REPAIR_PATCH,
+                    "第 " + buildNumber + " 次沙箱测试失败，已获得受限构建日志",
+                    "只允许基于失败证据修改原文件集合，并重新经过安全策略校验",
+                    repairChangedFiles && !repeatedRepair
+                            ? "生成了内容不同的修订补丁，准备再次验证"
+                            : "修复结果与既有候选相同，未产生有效进展",
+                    repairFingerprint,
+                    repairChangedFiles && !repeatedRepair
+            );
+            if (!repairChangedFiles || repeatedRepair
+                    || current.agentLoop().consecutiveNoProgress() >= 2) {
+                stopTask(
+                        current,
+                        AgentLoopStopCode.NO_PROGRESS,
+                        "修复Agent返回了重复补丁，继续测试不会改变结果",
+                        verification,
+                        "NO_PROGRESS_DETECTED"
+                );
+                return;
+            }
             Map<String, String> previousFiles = new HashMap<>();
             for (GeneratedFile file : plan.files()) {
                 previousFiles.put(file.relativePath(), file.content());
@@ -426,12 +560,33 @@ public class CodingTaskService {
     }
 
     private CodingTask fail(CodingTask current, String message, BuildVerification verification) {
+        return stopTask(
+                current,
+                AgentLoopStopCode.FAILURE,
+                message,
+                verification,
+                "FAILED"
+        );
+    }
+
+    private CodingTask stopTask(
+            CodingTask current,
+            AgentLoopStopCode stopCode,
+            String message,
+            BuildVerification verification,
+            String eventType
+    ) {
+        CodingTask stopped = withAgentLoop(
+                current,
+                current.agentLoop().stop(stopCode, message)
+        );
         return taskRepository.save(evolve(
-                current, CodingTaskStage.FAILED, current.summary(),
+                stopped,
+                CodingTaskStage.FAILED, current.summary(),
                 current.consumedFiles(), current.consumedBytes(),
                 current.consumedBuildExecutions(), current.consumedDurationMs(),
                 current.repairAttempts(), current.patches(), verification,
-                current.buildAttempts(), appendEvent(current.events(), "FAILED", message),
+                current.buildAttempts(), appendEvent(current.events(), eventType, message),
                 current.workspaceId(), "", message
         ));
     }
@@ -455,6 +610,7 @@ public class CodingTaskService {
                 current.patches(), current.verification(), current.buildAttempts(),
                 appendEvent(current.events(), "SKILLS_ACTIVATED",
                         phase + "阶段按需加载：" + activation.routingSummary()),
+                current.agentLoop(),
                 current.workspaceId(), current.approvedOutputPath(), current.failureMessage(),
                 current.createdAt(), Instant.now()
         ));
@@ -488,9 +644,51 @@ public class CodingTaskService {
                 summary, base.budget(),
                 consumedFiles, consumedBytes, consumedBuildExecutions,
                 consumedDurationMs, repairAttempts, base.activatedSkills(), patches, verification,
-                buildAttempts, events, workspaceId, approvedOutputPath, failureMessage,
+                buildAttempts, events, base.agentLoop(), workspaceId,
+                approvedOutputPath, failureMessage,
                 base.createdAt(), Instant.now()
         );
+    }
+
+    private CodingTask recordAgentLoopStep(
+            CodingTask current,
+            AgentLoopAction action,
+            String observation,
+            String rationale,
+            String outcome,
+            String fingerprint,
+            boolean progressMade
+    ) {
+        AgentLoopState next = current.agentLoop().record(
+                action, observation, rationale, outcome, fingerprint, progressMade);
+        return taskRepository.save(withAgentLoop(current, next));
+    }
+
+    private CodingTask withAgentLoop(CodingTask current, AgentLoopState agentLoop) {
+        return new CodingTask(
+                current.taskId(), current.workflowId(), current.workflowSnapshot(),
+                current.stage(), current.summary(), current.budget(),
+                current.consumedFiles(), current.consumedBytes(),
+                current.consumedBuildExecutions(), current.consumedDurationMs(),
+                current.repairAttempts(), current.activatedSkills(), current.patches(),
+                current.verification(), current.buildAttempts(), current.events(), agentLoop,
+                current.workspaceId(), current.approvedOutputPath(), current.failureMessage(),
+                current.createdAt(), Instant.now()
+        );
+    }
+
+    private String planFingerprint(CodePatchPlan plan) {
+        StringBuilder canonical = new StringBuilder();
+        plan.files().stream()
+                .sorted(Comparator.comparing(GeneratedFile::relativePath))
+                .forEach(file -> canonical
+                        .append(file.relativePath()).append('\u0000')
+                        .append(file.content()).append('\u0000'));
+        return sha256(canonical.toString().getBytes(StandardCharsets.UTF_8));
+    }
+
+    private String actionFingerprint(String... values) {
+        return sha256(String.join("\u001f", values).getBytes(StandardCharsets.UTF_8));
     }
 
     private List<CodingTaskEvent> appendEvent(
