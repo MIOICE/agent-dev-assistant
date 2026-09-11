@@ -41,7 +41,7 @@ public class EnterpriseMcpTools {
                 ToolGovernanceService.BUSINESS_DOCUMENT_TOOL,
                 "MCP",
                 query,
-                () -> businessDocumentTools.searchBusinessDocument(query.trim())
+                () -> businessDocumentTools.searchBusinessDocumentRaw(query.trim())
         );
     }
 
@@ -65,7 +65,7 @@ public class EnterpriseMcpTools {
                 ToolGovernanceService.DATABASE_METADATA_TOOL,
                 "MCP",
                 query,
-                () -> databaseMetadataTools.queryDatabaseMetadata(query.trim())
+                () -> databaseMetadataTools.queryDatabaseMetadataRaw(query.trim())
         );
     }
 }

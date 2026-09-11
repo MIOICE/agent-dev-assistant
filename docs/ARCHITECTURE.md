@@ -67,6 +67,8 @@
 - 人工审批是安全边界。驳回意见会进入下一次方案生成提示词，形成 Human-in-the-loop 闭环。
 - 模型、检索或方案生成失败时，接口返回 `FAILED` 工作流而不是丢失上下文；详细异常写入服务日志，对前端只展示安全错误信息。
 - 每个核心节点产生一个与 OpenTelemetry Span 结构相近的 `AgentTraceSpan`，记录 `traceId`、`spanId`、操作名、状态、起止时间、耗时和安全属性，并随工作流快照持久化。
+- `AgentObservabilityService` 以 `workflowId` 为端到端关联键，从工作流快照、工具审计与 Coding Checkpoint 构建统一 Trace 投影；Coding `taskId` 形成子树，Loop 行动和沙箱构建形成子 Span。同步 Spring AI 工具调用通过只传播关联 ID 的 `AgentTraceContext` 归属工作流，异步任务依靠持久化 ID 而不是跨线程 `ThreadLocal`。
+- Trace 属性不保存 Prompt、查询正文、工具返回正文或密钥；无法稳定获取 DeepSeek Token Usage 时明确返回不可用，构建耗时与事件级时间戳也分别标注精度边界。
 - `WorkflowMetrics` 从真实工作流事件和 Trace 聚合首轮就绪率、平均澄清轮数、推荐值采纳率、完成率、失败率和节点耗时，避免只凭演示案例评价 Agent。
 - `EnterpriseMcpTools` 通过 MCP Streamable HTTP 把业务规范检索和数据库元数据查询暴露给外部 Agent 客户端；客户端先握手，再通过 `tools/list` 获取 JSON Schema，通过 `tools/call` 执行。
 - MCP 自动转换本地工具的能力被关闭，仅显式标注的两个工具进入协议目录。工具声明包含只读、非破坏、幂等、封闭世界提示，实际调用还要经过白名单和参数校验。
@@ -96,7 +98,7 @@
 - 数据库元数据工具当前使用演示用只读元数据目录，不连接真实业务库，也不读取业务数据。
 - 需求阶段生成技术方案；编码阶段只生成到独立沙箱和批准产物目录，不会修改真实存量仓库、执行 SQL 或发布生产环境。
 - 需求工作流失败仍由用户手动重试；代码任务支持受控 Agent Loop 和最多两轮自动修复，但没有实现 Redis、限流或多实例分布式锁。
-- 当前 Trace 是项目内可持久化 Span，尚未接入标准 OpenTelemetry Collector、Prometheus 或 Grafana。
+- 当前是 OpenTelemetry 风格的项目内 Span 与跨模块统一投影，尚未接入标准 OpenTelemetry SDK/Exporter、Collector、Prometheus、Tempo、Jaeger 或 Grafana；工具审计仍是单机内存数据。
 - MCP 调用审计当前保存在有界内存队列中，重启会清空；尚未接入用户身份、OAuth、持久化审计和细粒度授权。
 - DeepSeek 在本应用内部仍使用进程内 Spring AI `@Tool`，MCP Server 服务于外部 Agent 客户端；项目没有为了“使用 MCP”而让自己通过网络回调自己。
 - 代码任务默认保存为本机 JSON Checkpoint，可在单实例重启后恢复；尚未使用分布式队列、租约或幂等外部副作用协议，因此不声称支持多实例竞争恢复。

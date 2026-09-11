@@ -25,6 +25,7 @@
 - Durable Coding Agent：API 提交后立即进入有界后台队列；从已审批技术方案生成受限 Java 补丁，在无网络 Docker 沙箱中离线测试，失败时依据构建证据最多自动修复两轮，并通过文件 Checkpoint 支持服务重启恢复。
 - 受控 Agent Loop：将编码过程显式建模为“观察状态→选择行动→执行→验证结果”，逐步记录生成、沙箱测试、证据修复和人工审批轨迹；同时限制最多 8 个 Agent 步骤，并通过补丁与失败证据 SHA-256 指纹识别重复行动，在无进展、执行预算耗尽或需要人工审批时明确停止。
 - 实时任务状态流：使用 Spring MVC `SseEmitter` 将代码任务的完整 Checkpoint 快照主动推送到浏览器；新订阅先读取仓库最新状态，并通过更新时间抑制乱序旧快照，客户端断线后自动重连，SSE 不可用时降级为低频轮询。
+- 端到端 Agent Trace：以 `workflowId` 关联需求分析、Agentic RAG、Spring AI/MCP 工具调用、后台 Coding Agent、Agent Loop 与 Docker 构建；统一展示 Span 类型、状态、耗时和调用统计，并对暂不可得的 Token Usage 显式标记而非伪造。
 - Agent Skills：以标准 `SKILL.md` 封装 Java 生成、失败修复、安全复核和导出可靠性方法；先按生成/修复阶段缩小候选集，再用本地 BGE 语义相似度按需加载正文，并记录路由分数与任务级激活轨迹。
 - Skill 供应链防护：启动时校验技能名称、阶段、宿主工具白名单、内容大小和 SHA-256 受信任清单；摘要不一致或越权声明会直接拒绝启动。
 - 安全发布：每轮修复保持文件集合不变，持续执行路径、危险能力和自治预算校验；最终通过统一 Diff、SHA-256 与二次人工审批输出独立产物。
@@ -43,6 +44,7 @@ src/main/java/com/gaozhaoyang/agent
 ├─ workflow/      状态机、审批闭环与持久化
 ├─ coding/        异步代码任务、Checkpoint、有界修复与沙箱验证
 ├─ skill/         Skills 索引、阶段路由、渐进式加载与激活统计
+├─ observability/ Trace 上下文、跨模块 Span 投影与运行摘要
 └─ common/        统一异常与运行状态
 ```
 
@@ -236,13 +238,14 @@ Invoke-RestMethod -Uri "http://localhost:8080/api/system/status" -Method Get |
 | POST | `/api/coding-tasks?workflowId=...` | 提交后台代码任务，返回 HTTP 202 与当前快照 |
 | GET | `/api/coding-tasks/{taskId}` | 查询后台阶段、Checkpoint、修复与构建记录 |
 | GET | `/api/coding-tasks/{taskId}/stream` | 通过 SSE 实时订阅最新代码任务完整快照 |
+| GET | `/api/observability/traces/{workflowId}` | 汇总工作流、工具、Coding Loop 与沙箱构建的端到端 Trace |
 | GET | `/api/coding-tasks/workflow/{workflowId}` | 查询工作流对应的代码任务 |
 | POST | `/api/coding-tasks/{taskId}/approval` | 人工批准测试通过的代码产物 |
 | GET | `/api/system/status` | 查看模型与仓库运行模式 |
 
 ## 简历表述边界
 
-可以如实写“Spring AI、DeepSeek、有界 Agentic RAG、证据规划与多轮查询改写、证据充分性检查、方案结论与 Chunk 级来源绑定、Claim–Evidence 支持/矛盾/不足分类、12 条合成业务金标集、Coverage/Accuracy/Macro Recall/混淆矩阵、版本化 Eval Run、数据集 SHA-256 指纹、绝对阈值与通过基线回归门禁、原子评测 Checkpoint、模型输出 ID 白名单复核、本地 BGE RAG、外部 MES 文档只读接入、标题感知分块、向量与关键词混合检索、Chunk指纹、磁盘向量快照、增量索引、来源元数据与置信度拒答、Tool Calling、MCP Streamable HTTP Server、Agent Skills 语义路由与渐进式加载、Skill SHA-256 完整性校验、工具白名单与调用审计、结构化澄清、确定性策略校验、Agent Trace、运行评测、工作流状态机、Human-in-the-loop、MySQL 工作流持久化、文件 Checkpoint、受控 Agent Loop、SSE 状态快照流、异步后台任务、有界自动修复、受限代码补丁、统一 Diff、自治预算与 Docker 隔离验证”。当前 Claim–Evidence 金标只有 12 条合成业务样例，尚未由真实业务专家标注，也没有生产流量准确率；评测历史是单机文件存储，尚未接入 CI/CD 发布流水线。Redis、标准 OpenTelemetry Exporter、分布式任务队列、MCP 身份认证、第三方 Skill 签名、Qdrant/PGVector等独立向量数据库、多实例索引锁、直接修改真实仓库、生产发布和真实业务库查询也未完成，不应写成已经实现。
+可以如实写“Spring AI、DeepSeek、有界 Agentic RAG、证据规划与多轮查询改写、证据充分性检查、方案结论与 Chunk 级来源绑定、Claim–Evidence 支持/矛盾/不足分类、12 条合成业务金标集、Coverage/Accuracy/Macro Recall/混淆矩阵、版本化 Eval Run、数据集 SHA-256 指纹、绝对阈值与通过基线回归门禁、原子评测 Checkpoint、模型输出 ID 白名单复核、本地 BGE RAG、外部 MES 文档只读接入、标题感知分块、向量与关键词混合检索、Chunk指纹、磁盘向量快照、增量索引、来源元数据与置信度拒答、Tool Calling、MCP Streamable HTTP Server、Agent Skills 语义路由与渐进式加载、Skill SHA-256 完整性校验、工具白名单与隐私化调用审计、结构化澄清、确定性策略校验、端到端 Agent Trace、运行评测、工作流状态机、Human-in-the-loop、MySQL 工作流持久化、文件 Checkpoint、受控 Agent Loop、SSE 状态快照流、异步后台任务、有界自动修复、受限代码补丁、统一 Diff、自治预算与 Docker 隔离验证”。当前 Claim–Evidence 金标只有 12 条合成业务样例，尚未由真实业务专家标注，也没有生产流量准确率；评测历史是单机文件存储，尚未接入 CI/CD 发布流水线。Redis、标准 OpenTelemetry SDK/Exporter/Collector、真实 Token 成本统计、分布式任务队列、MCP 身份认证、第三方 Skill 签名、Qdrant/PGVector等独立向量数据库、多实例索引锁、直接修改真实仓库、生产发布和真实业务库查询也未完成，不应写成已经实现。
 
 本轮“业务友好澄清 Agent”的实现与面试复述见 [docs/MILESTONE-01-BUSINESS-CLARIFICATION.md](docs/MILESTONE-01-BUSINESS-CLARIFICATION.md)。
 
@@ -277,5 +280,7 @@ Claim–Evidence 人工金标评测见 [docs/MILESTONE-13-CLAIM-EVIDENCE-EVALS.m
 受控 Agent Loop、步骤预算与无进展检测见 [docs/MILESTONE-16-CONTROLLED-AGENT-LOOP.md](docs/MILESTONE-16-CONTROLLED-AGENT-LOOP.md)。
 
 SSE 实时任务状态流、断线恢复与轮询降级见 [docs/MILESTONE-17-SSE-TASK-STREAM.md](docs/MILESTONE-17-SSE-TASK-STREAM.md)。
+
+跨工作流、工具、Coding Agent 与沙箱构建的统一 Trace 见 [docs/MILESTONE-18-END-TO-END-OBSERVABILITY.md](docs/MILESTONE-18-END-TO-END-OBSERVABILITY.md)。
 
 累计面试复述与追问答案见 [docs/INTERVIEW-GUIDE.md](docs/INTERVIEW-GUIDE.md)。

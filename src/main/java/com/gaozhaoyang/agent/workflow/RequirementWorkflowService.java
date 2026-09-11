@@ -8,6 +8,7 @@ import com.gaozhaoyang.agent.knowledge.EvidenceResearchReport;
 import com.gaozhaoyang.agent.knowledge.EvidenceResearcher;
 import com.gaozhaoyang.agent.knowledge.KnowledgeSearcher;
 import com.gaozhaoyang.agent.knowledge.SingleQueryEvidenceResearcher;
+import com.gaozhaoyang.agent.observability.AgentTraceContext;
 import com.gaozhaoyang.agent.requirement.RequirementAnalyzer;
 import com.gaozhaoyang.agent.requirement.ClarificationQuestion;
 import com.gaozhaoyang.agent.requirement.RequirementCard;
@@ -35,6 +36,7 @@ public class RequirementWorkflowService {
     private final SolutionGroundingService solutionGroundingService;
     private final SolutionEvidenceCritic solutionEvidenceCritic;
     private final WorkflowRepository workflowRepository;
+    private final AgentTraceContext traceContext;
 
     @Autowired
     public RequirementWorkflowService(
@@ -43,7 +45,8 @@ public class RequirementWorkflowService {
             SolutionGenerator solutionGenerator,
             SolutionGroundingService solutionGroundingService,
             SolutionEvidenceCritic solutionEvidenceCritic,
-            WorkflowRepository workflowRepository
+            WorkflowRepository workflowRepository,
+            AgentTraceContext traceContext
     ) {
         this.requirementAnalyzer = requirementAnalyzer;
         this.evidenceResearcher = evidenceResearcher;
@@ -51,6 +54,7 @@ public class RequirementWorkflowService {
         this.solutionGroundingService = solutionGroundingService;
         this.solutionEvidenceCritic = solutionEvidenceCritic;
         this.workflowRepository = workflowRepository;
+        this.traceContext = traceContext;
     }
 
     public RequirementWorkflowService(
@@ -65,7 +69,8 @@ public class RequirementWorkflowService {
                 solutionGenerator,
                 new SolutionGroundingService(),
                 new RuleBasedSolutionEvidenceCritic(),
-                workflowRepository
+                workflowRepository,
+                new AgentTraceContext()
         );
     }
 
@@ -266,7 +271,10 @@ public class RequirementWorkflowService {
             Instant analysisStartedAt = Instant.now();
             RequirementCard card;
             try {
-                card = requirementAnalyzer.analyze(effectiveRequirement);
+                card = traceContext.withinTrace(
+                        currentState.workflowId(),
+                        () -> requirementAnalyzer.analyze(effectiveRequirement)
+                );
                 currentState = currentState.addTraceSpan(AgentTraceSpan.success(
                         currentState.workflowId(),
                         "agent.requirement-analysis",

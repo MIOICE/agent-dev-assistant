@@ -4,6 +4,7 @@ import java.time.Instant;
 
 public record ToolAuditRecord(
         String auditId,
+        String traceId,
         String toolName,
         String channel,
         String status,

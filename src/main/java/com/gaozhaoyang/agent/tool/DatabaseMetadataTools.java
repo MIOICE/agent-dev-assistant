@@ -2,6 +2,7 @@ package com.gaozhaoyang.agent.tool;
 
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -9,6 +10,8 @@ import java.util.stream.Collectors;
 
 @Component
 public class DatabaseMetadataTools {
+
+    private final ToolGovernanceService governanceService;
 
     private static final List<TableMetadata> TABLES = List.of(
             new TableMetadata(
@@ -69,6 +72,15 @@ public class DatabaseMetadataTools {
             )
     );
 
+    public DatabaseMetadataTools() {
+        this(new ToolGovernanceService());
+    }
+
+    @Autowired
+    public DatabaseMetadataTools(ToolGovernanceService governanceService) {
+        this.governanceService = governanceService;
+    }
+
     @Tool(description = "根据业务需求查询数据库表、字段和索引元数据。涉及字段筛选、数据导出、批量修改、删除或表关系分析时应调用此工具。工具只返回结构信息，不读取或修改真实业务数据。")
     public String queryDatabaseMetadata(
             @ToolParam(description = "用于查找相关表结构的业务关键词或完整需求描述")
@@ -76,6 +88,16 @@ public class DatabaseMetadataTools {
         if (query == null || query.isBlank()) {
             return "元数据查询关键词不能为空";
         }
+
+        return governanceService.executeReadOnly(
+                ToolGovernanceService.DATABASE_METADATA_TOOL,
+                "SPRING_AI",
+                query,
+                () -> queryDatabaseMetadataRaw(query.trim())
+        );
+    }
+
+    String queryDatabaseMetadataRaw(String query) {
 
         List<TableMetadata> matches = TABLES.stream()
                 .filter(table -> table.keywords().stream()

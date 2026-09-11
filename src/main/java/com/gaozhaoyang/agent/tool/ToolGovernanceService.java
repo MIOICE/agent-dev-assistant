@@ -1,5 +1,7 @@
 package com.gaozhaoyang.agent.tool;
 
+import com.gaozhaoyang.agent.observability.AgentTraceContext;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -24,6 +26,16 @@ public class ToolGovernanceService {
 
     private final ConcurrentLinkedDeque<ToolAuditRecord> auditRecords =
             new ConcurrentLinkedDeque<>();
+    private final AgentTraceContext traceContext;
+
+    public ToolGovernanceService() {
+        this(new AgentTraceContext());
+    }
+
+    @Autowired
+    public ToolGovernanceService(AgentTraceContext traceContext) {
+        this.traceContext = traceContext;
+    }
 
     public String executeReadOnly(
             String toolName,
@@ -66,6 +78,17 @@ public class ToolGovernanceService {
         return auditRecords.size();
     }
 
+    public List<ToolAuditRecord> recentForTrace(String traceId, int limit) {
+        int safeLimit = Math.min(Math.max(limit, 1), 100);
+        if (traceId == null || traceId.isBlank()) {
+            return List.of();
+        }
+        return auditRecords.stream()
+                .filter(record -> traceId.equals(record.traceId()))
+                .limit(safeLimit)
+                .toList();
+    }
+
     public List<String> allowedTools() {
         return ALLOWED_TOOLS.stream().sorted().toList();
     }
@@ -97,6 +120,7 @@ public class ToolGovernanceService {
         Instant endedAt = Instant.now();
         auditRecords.addFirst(new ToolAuditRecord(
                 UUID.randomUUID().toString(),
+                traceContext.currentTraceId().orElse(""),
                 toolName,
                 channel == null || channel.isBlank() ? "UNKNOWN" : channel,
                 status,

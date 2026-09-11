@@ -1,5 +1,6 @@
 package com.gaozhaoyang.agent.tool;
 
+import com.gaozhaoyang.agent.observability.AgentTraceContext;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -77,5 +78,24 @@ class ToolGovernanceServiceTest {
         ToolAuditRecord audit = governanceService.recent(1).getFirst();
         assertThat(audit.status()).isEqualTo("ERROR");
         assertThat(audit.errorType()).isEqualTo("IllegalStateException");
+    }
+
+    @Test
+    void shouldCorrelateToolAuditWithoutRecordingSensitiveContent() {
+        AgentTraceContext context = new AgentTraceContext();
+        ToolGovernanceService service = new ToolGovernanceService(context);
+
+        context.withinTrace("workflow-42", () -> service.executeReadOnly(
+                ToolGovernanceService.DATABASE_METADATA_TOOL,
+                "SPRING_AI",
+                "客户手机号",
+                () -> "contact_phone"
+        ));
+
+        ToolAuditRecord audit = service.recentForTrace("workflow-42", 10).getFirst();
+        assertThat(audit.traceId()).isEqualTo("workflow-42");
+        assertThat(audit.inputChars()).isEqualTo(5);
+        assertThat(audit.outputChars()).isEqualTo(13);
+        assertThat(audit.toString()).doesNotContain("客户手机号", "contact_phone");
     }
 }
