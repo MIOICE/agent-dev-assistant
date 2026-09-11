@@ -12,6 +12,7 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -58,6 +59,7 @@ public class CodingTaskService {
     private final SandboxBuildRunner buildRunner;
     private final UnifiedDiffRenderer diffRenderer;
     private final CodingTaskRepository taskRepository;
+    private final CodingTaskEventStream eventStream;
     private final TaskExecutor taskExecutor;
     private final Path sandboxRoot;
     private final Path approvedRoot;
@@ -73,6 +75,7 @@ public class CodingTaskService {
             SandboxBuildRunner buildRunner,
             UnifiedDiffRenderer diffRenderer,
             CodingTaskRepository taskRepository,
+            CodingTaskEventStream eventStream,
             @Qualifier("codingTaskExecutor") TaskExecutor taskExecutor,
             @Value("${app.coding.sandbox-root}") String sandboxRoot,
             @Value("${app.coding.approved-root}") String approvedRoot
@@ -86,6 +89,7 @@ public class CodingTaskService {
         this.buildRunner = buildRunner;
         this.diffRenderer = diffRenderer;
         this.taskRepository = taskRepository;
+        this.eventStream = eventStream;
         this.taskExecutor = taskExecutor;
         this.sandboxRoot = configuredRoot(sandboxRoot, "沙箱");
         this.approvedRoot = configuredRoot(approvedRoot, "批准产物");
@@ -111,7 +115,7 @@ public class CodingTaskService {
                 List.of(CodingTaskEvent.of("QUEUED", "代码任务已进入后台执行队列")),
                 "", "", "", now, now
         );
-        taskRepository.save(queued);
+        save(queued);
         dispatch(taskId);
         return get(taskId);
     }
@@ -134,7 +138,7 @@ public class CodingTaskService {
                             "检测到未完成Checkpoint，任务重新进入队列"),
                     "", "", ""
             );
-            taskRepository.save(queued);
+            save(queued);
             dispatch(queued.taskId());
         }
     }
@@ -146,6 +150,11 @@ public class CodingTaskService {
 
     public Optional<CodingTask> findByWorkflowId(String workflowId) {
         return taskRepository.findLatestByWorkflowId(workflowId);
+    }
+
+    public SseEmitter stream(String taskId) {
+        get(taskId);
+        return eventStream.subscribe(taskId, () -> get(taskId));
     }
 
     public CodingTask approve(String taskId, String comment) {
@@ -189,7 +198,7 @@ public class CodingTaskService {
                                     : "人工审批通过：" + normalizedComment),
                     current.workspaceId(), output.toString(), ""
             );
-            return taskRepository.save(withAgentLoop(
+            return save(withAgentLoop(
                     published,
                     published.agentLoop().stop(
                             AgentLoopStopCode.GOAL_REACHED,
@@ -233,7 +242,7 @@ public class CodingTaskService {
             }
 
             String workspaceId = taskId + "-run-" + UUID.randomUUID();
-            current = taskRepository.save(evolve(
+            current = save(evolve(
                     current, CodingTaskStage.GENERATING, current.summary(),
                     current.consumedFiles(), current.consumedBytes(),
                     current.consumedBuildExecutions(), current.consumedDurationMs(),
@@ -252,7 +261,7 @@ public class CodingTaskService {
             projectTemplate.initialize(workspace);
             List<PatchFile> patches = writeGeneratedFiles(workspace, plan.files(), Map.of());
             long bytes = patches.stream().mapToLong(PatchFile::bytes).sum();
-            current = taskRepository.save(evolve(
+            current = save(evolve(
                     current, CodingTaskStage.VERIFYING, plan.summary(),
                     patches.size(), bytes, current.consumedBuildExecutions(),
                     current.consumedDurationMs(), current.repairAttempts(), patches,
@@ -324,7 +333,7 @@ public class CodingTaskService {
             }
 
             int buildNumber = current.consumedBuildExecutions() + 1;
-            current = taskRepository.save(evolve(
+            current = save(evolve(
                     current, CodingTaskStage.VERIFYING, plan.summary(),
                     current.consumedFiles(), current.consumedBytes(), buildNumber,
                     current.consumedDurationMs(), current.repairAttempts(), current.patches(),
@@ -353,7 +362,7 @@ public class CodingTaskService {
                     verification.outputSummary()
             );
             boolean repeatedBuild = current.agentLoop().hasFingerprint(buildFingerprint);
-            current = taskRepository.save(evolve(
+            current = save(evolve(
                     current, CodingTaskStage.VERIFYING, plan.summary(),
                     current.consumedFiles(), current.consumedBytes(), buildNumber,
                     consumedDuration, current.repairAttempts(), current.patches(),
@@ -396,7 +405,7 @@ public class CodingTaskService {
                                 "沙箱测试通过，等待人工审批后发布"
                         )
                 );
-                taskRepository.save(evolve(
+                save(evolve(
                         current, CodingTaskStage.WAITING_APPROVAL, plan.summary(),
                         current.consumedFiles(), current.consumedBytes(), buildNumber,
                         consumedDuration, current.repairAttempts(), current.patches(),
@@ -443,7 +452,7 @@ public class CodingTaskService {
             }
 
             int repairNumber = current.repairAttempts() + 1;
-            current = taskRepository.save(evolve(
+            current = save(evolve(
                     current, CodingTaskStage.REPAIRING, plan.summary(),
                     current.consumedFiles(), current.consumedBytes(), buildNumber,
                     consumedDuration, repairNumber, current.patches(), verification, attempts,
@@ -500,7 +509,7 @@ public class CodingTaskService {
             List<PatchFile> repairedPatches = writeGeneratedFiles(
                     workspace, repaired.files(), previousFiles);
             long repairedBytes = repairedPatches.stream().mapToLong(PatchFile::bytes).sum();
-            current = taskRepository.save(evolve(
+            current = save(evolve(
                     current, CodingTaskStage.VERIFYING, repaired.summary(),
                     repairedPatches.size(), repairedBytes, buildNumber,
                     consumedDuration, repairNumber, repairedPatches, verification, attempts,
@@ -580,7 +589,7 @@ public class CodingTaskService {
                 current,
                 current.agentLoop().stop(stopCode, message)
         );
-        return taskRepository.save(evolve(
+        return save(evolve(
                 stopped,
                 CodingTaskStage.FAILED, current.summary(),
                 current.consumedFiles(), current.consumedBytes(),
@@ -602,7 +611,7 @@ public class CodingTaskService {
                 activatedSkills.add(name);
             }
         }
-        return taskRepository.save(new CodingTask(
+        return save(new CodingTask(
                 current.taskId(), current.workflowId(), current.workflowSnapshot(), current.stage(),
                 current.summary(), current.budget(), current.consumedFiles(),
                 current.consumedBytes(), current.consumedBuildExecutions(),
@@ -661,7 +670,13 @@ public class CodingTaskService {
     ) {
         AgentLoopState next = current.agentLoop().record(
                 action, observation, rationale, outcome, fingerprint, progressMade);
-        return taskRepository.save(withAgentLoop(current, next));
+        return save(withAgentLoop(current, next));
+    }
+
+    private CodingTask save(CodingTask task) {
+        CodingTask saved = taskRepository.save(task);
+        eventStream.publish(saved);
+        return saved;
     }
 
     private CodingTask withAgentLoop(CodingTask current, AgentLoopState agentLoop) {

@@ -260,6 +260,7 @@ class CodingTaskServiceTest {
                 runner,
                 new UnifiedDiffRenderer(),
                 repository,
+                new CodingTaskEventStream(),
                 executor,
                 sandbox.toString(),
                 approved.toString()
