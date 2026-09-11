@@ -25,15 +25,7 @@ GET /api/observability/traces/{workflowId}
 
 ## 与 OpenTelemetry 的关系
 
-统一模型采用 Trace、Span、parentSpanId、operation、status、start/end、duration 和 attributes 等通用概念，便于后续映射到 OpenTelemetry；本阶段实现的是项目内统一投影和页面展示，尚未接入 OpenTelemetry SDK、Collector、Tempo、Jaeger 或 Grafana，简历与面试中必须保持这个边界。
-
-## 面试复述
-
-> 这个 Agent 横跨同步需求工作流、模型工具调用、异步 Coding Agent 和 Docker 沙箱，单看应用日志很难还原一次任务。我使用 workflowId 作为端到端 traceId，把已有的工作流 Span、隐私化工具审计和 Coding Checkpoint 投影成统一 Trace；taskId 是编码子树，Loop 行动和每次构建作为子 Span。同步工具调用通过只携带关联 ID 的 Trace Context 归属到当前工作流，异步任务不依赖 ThreadLocal，而是使用持久化 workflowId 恢复关联。页面可以直接看到各类调用数量、失败点和耗时。拿不到可靠 Token Usage 时我明确标记不可用，没有用字符数伪造指标。
-
-## 简历可写版本
-
-> 面向跨越需求分析、Agentic RAG、Tool Calling、后台 Coding Agent 与 Docker 沙箱的长链路任务，设计以 `workflowId` 为关联键的端到端 Agent Trace，将工作流 Span、隐私化工具审计、Agent Loop 及构建 Checkpoint 汇总为统一可观测视图；记录节点状态、真实耗时、失败位置与调用统计，并通过安全 Trace Context 关联同步工具调用，避免保存 Prompt、密钥和业务正文。
+统一模型采用 Trace、Span、parentSpanId、operation、status、start/end、duration 和 attributes 等通用概念，便于后续映射到 OpenTelemetry；本阶段实现的是项目内统一投影和页面展示，尚未接入 OpenTelemetry SDK、Collector、Tempo、Jaeger 或 Grafana，对外说明必须保持这个边界。
 
 ## 验证结果
 

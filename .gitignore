@@ -10,3 +10,6 @@ knowledge-index/
 .env.local
 application-local.yml
 config/application-local.yml
+
+# 仅供本地使用的求职、简历和面试材料
+local-career/
