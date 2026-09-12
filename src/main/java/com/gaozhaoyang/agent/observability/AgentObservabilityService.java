@@ -203,6 +203,8 @@ public class AgentObservabilityService {
             case FAILED -> "ERROR";
             case PUBLISHED -> "SUCCESS";
             case WAITING_APPROVAL -> "WAITING";
+            case CANCELLED -> "CANCELLED";
+            case TIMED_OUT -> "TIMED_OUT";
             default -> "RUNNING";
         };
     }

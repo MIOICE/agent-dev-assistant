@@ -6,11 +6,13 @@ import com.gaozhaoyang.agent.skill.SkillActivation;
 import com.gaozhaoyang.agent.workflow.RequirementWorkflowService;
 import com.gaozhaoyang.agent.workflow.WorkflowStage;
 import com.gaozhaoyang.agent.workflow.WorkflowState;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.task.TaskExecutor;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -33,6 +35,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadPoolExecutor;
 
 @Service
 public class CodingTaskService {
@@ -47,6 +50,8 @@ public class CodingTaskService {
     private static final Set<CodingTaskStage> TERMINAL_OR_PAUSED_STAGES = Set.of(
             CodingTaskStage.WAITING_APPROVAL,
             CodingTaskStage.PUBLISHED,
+            CodingTaskStage.CANCELLED,
+            CodingTaskStage.TIMED_OUT,
             CodingTaskStage.FAILED
     );
 
@@ -63,8 +68,10 @@ public class CodingTaskService {
     private final TaskExecutor taskExecutor;
     private final Path sandboxRoot;
     private final Path approvedRoot;
+    private final long maxTaskRuntimeMs;
     private final Set<String> runningTaskIds = ConcurrentHashMap.newKeySet();
 
+    @Autowired
     public CodingTaskService(
             RequirementWorkflowService workflowService,
             CodePatchGenerator patchGenerator,
@@ -78,7 +85,8 @@ public class CodingTaskService {
             CodingTaskEventStream eventStream,
             @Qualifier("codingTaskExecutor") TaskExecutor taskExecutor,
             @Value("${app.coding.sandbox-root}") String sandboxRoot,
-            @Value("${app.coding.approved-root}") String approvedRoot
+            @Value("${app.coding.approved-root}") String approvedRoot,
+            @Value("${app.coding.executor.max-task-runtime-ms:300000}") long maxTaskRuntimeMs
     ) {
         this.workflowService = workflowService;
         this.patchGenerator = patchGenerator;
@@ -93,11 +101,40 @@ public class CodingTaskService {
         this.taskExecutor = taskExecutor;
         this.sandboxRoot = configuredRoot(sandboxRoot, "沙箱");
         this.approvedRoot = configuredRoot(approvedRoot, "批准产物");
+        if (maxTaskRuntimeMs <= 0) {
+            throw new CodingTaskException("代码任务最长运行时间必须大于0毫秒");
+        }
+        this.maxTaskRuntimeMs = maxTaskRuntimeMs;
+    }
+
+    /** 兼容单元测试与阶段19之前的显式构造方式。 */
+    public CodingTaskService(
+            RequirementWorkflowService workflowService,
+            CodePatchGenerator patchGenerator,
+            CodePatchRepairer patchRepairer,
+            CodingSkillProvider skillProvider,
+            SandboxPolicy sandboxPolicy,
+            SandboxProjectTemplate projectTemplate,
+            SandboxBuildRunner buildRunner,
+            UnifiedDiffRenderer diffRenderer,
+            CodingTaskRepository taskRepository,
+            CodingTaskEventStream eventStream,
+            TaskExecutor taskExecutor,
+            String sandboxRoot,
+            String approvedRoot
+    ) {
+        this(workflowService, patchGenerator, patchRepairer, skillProvider,
+                sandboxPolicy, projectTemplate, buildRunner, diffRenderer,
+                taskRepository, eventStream, taskExecutor, sandboxRoot, approvedRoot,
+                300_000);
     }
 
     public synchronized CodingTask submit(String workflowId) {
         Optional<CodingTask> existing = findByWorkflowId(workflowId);
-        if (existing.isPresent() && existing.get().stage() != CodingTaskStage.FAILED) {
+        if (existing.isPresent()
+                && existing.get().stage() != CodingTaskStage.FAILED
+                && existing.get().stage() != CodingTaskStage.CANCELLED
+                && existing.get().stage() != CodingTaskStage.TIMED_OUT) {
             return existing.get();
         }
         WorkflowState workflow = workflowService.get(workflowId);
@@ -157,7 +194,52 @@ public class CodingTaskService {
         return eventStream.subscribe(taskId, () -> get(taskId));
     }
 
-    public CodingTask approve(String taskId, String comment) {
+    public CodingTaskRuntimeStatus runtimeStatus() {
+        if (taskExecutor instanceof ThreadPoolTaskExecutor springExecutor) {
+            ThreadPoolExecutor executor = springExecutor.getThreadPoolExecutor();
+            return new CodingTaskRuntimeStatus(
+                    springExecutor.getCorePoolSize(),
+                    springExecutor.getActiveCount(),
+                    springExecutor.getPoolSize(),
+                    executor.getQueue().size(),
+                    executor.getQueue().remainingCapacity(),
+                    runningTaskIds.size(),
+                    maxTaskRuntimeMs
+            );
+        }
+        return new CodingTaskRuntimeStatus(
+                -1, -1, -1, -1, -1, runningTaskIds.size(), maxTaskRuntimeMs);
+    }
+
+    public synchronized CodingTask cancel(String taskId, String reason) {
+        CodingTask current = get(taskId);
+        if (current.stage() == CodingTaskStage.CANCELLED) {
+            return current;
+        }
+        if (current.stage() == CodingTaskStage.TIMED_OUT) {
+            return current;
+        }
+        if (current.stage() == CodingTaskStage.PUBLISHED) {
+            throw new CodingTaskException("已发布的代码任务不能取消");
+        }
+        if (current.stage() == CodingTaskStage.FAILED) {
+            throw new CodingTaskException("已失败的代码任务无需取消，可重新提交");
+        }
+        String normalizedReason = reason == null ? "" : reason.trim();
+        String message = normalizedReason.isBlank()
+                ? "用户取消代码任务"
+                : "用户取消代码任务：" + normalizedReason;
+        return terminateTask(
+                current,
+                CodingTaskStage.CANCELLED,
+                AgentLoopStopCode.CANCELLED,
+                message,
+                current.verification(),
+                "CANCELLED"
+        );
+    }
+
+    public synchronized CodingTask approve(String taskId, String comment) {
         CodingTask current = get(taskId);
         if (current.stage() != CodingTaskStage.WAITING_APPROVAL
                 || current.verification() == null
@@ -215,7 +297,8 @@ public class CodingTaskService {
             taskExecutor.execute(() -> process(taskId));
         } catch (RuntimeException exception) {
             CodingTask current = get(taskId);
-            fail(current, "后台执行队列已满，请稍后重新提交", current.verification());
+            fail(current, "后台执行队列已满，请稍后重新提交", current.verification(),
+                    "QUEUE_REJECTED");
         }
     }
 
@@ -228,6 +311,7 @@ public class CodingTaskService {
             if (TERMINAL_OR_PAUSED_STAGES.contains(current.stage())) {
                 return;
             }
+            current = ensureExecutionAllowed(current);
             WorkflowState workflow = current.workflowSnapshot() != null
                     ? current.workflowSnapshot()
                     : workflowService.get(current.workflowId());
@@ -257,6 +341,7 @@ public class CodingTaskService {
             current = recordSkillActivation(current, generationSkills, "代码生成");
             CodePatchPlan plan = sandboxPolicy.validate(
                     patchGenerator.generate(workflow, generationSkills), current.budget());
+            current = ensureExecutionAllowed(current);
             Path workspace = prepareTaskDirectory(sandboxRoot, workspaceId);
             projectTemplate.initialize(workspace);
             List<PatchFile> patches = writeGeneratedFiles(workspace, plan.files(), Map.of());
@@ -283,6 +368,8 @@ public class CodingTaskService {
             );
 
             executeControlledAgentLoop(current, workflow, workspace, plan);
+        } catch (TaskControlSignal ignored) {
+            // 取消或超时状态已经写入Checkpoint；工作线程只负责停止后续动作。
         } catch (IOException exception) {
             CodingTask latest = taskRepository.findById(taskId).orElse(current);
             fail(latest, "沙箱文件操作失败", latest.verification());
@@ -307,6 +394,7 @@ public class CodingTaskService {
         CodePatchPlan plan = startingPlan;
 
         while (true) {
+            current = ensureExecutionAllowed(current);
             if (current.agentLoop().exhausted()) {
                 stopTask(
                         current,
@@ -349,6 +437,7 @@ public class CodingTaskService {
                     Math.min(remainingDuration, MAX_SINGLE_BUILD_DURATION_MS)
             );
             BuildVerification verification = buildRunner.verify(workspace, remainingBudget);
+            current = ensureExecutionAllowed(current);
             long consumedDuration = current.consumedDurationMs()
                     + Math.max(verification.durationMs(), 0);
             List<BuildAttempt> attempts = new ArrayList<>(current.buildAttempts());
@@ -471,6 +560,7 @@ public class CodingTaskService {
                             workflow, plan, verification, repairNumber, repairSkills),
                     current.budget()
             );
+            current = ensureExecutionAllowed(current);
             ensureSamePaths(plan, repaired);
             String previousPlanFingerprint = planFingerprint(plan);
             String repairedPlanFingerprint = planFingerprint(repaired);
@@ -569,17 +659,45 @@ public class CodingTaskService {
     }
 
     private CodingTask fail(CodingTask current, String message, BuildVerification verification) {
-        return stopTask(
+        return fail(current, message, verification, "FAILED");
+    }
+
+    private CodingTask fail(
+            CodingTask current,
+            String message,
+            BuildVerification verification,
+            String eventType
+    ) {
+        return terminateTask(
                 current,
+                CodingTaskStage.FAILED,
                 AgentLoopStopCode.FAILURE,
                 message,
                 verification,
-                "FAILED"
+                eventType
         );
     }
 
     private CodingTask stopTask(
             CodingTask current,
+            AgentLoopStopCode stopCode,
+            String message,
+            BuildVerification verification,
+            String eventType
+    ) {
+        return terminateTask(
+                current,
+                CodingTaskStage.FAILED,
+                stopCode,
+                message,
+                verification,
+                eventType
+        );
+    }
+
+    private CodingTask terminateTask(
+            CodingTask current,
+            CodingTaskStage terminalStage,
             AgentLoopStopCode stopCode,
             String message,
             BuildVerification verification,
@@ -591,13 +709,35 @@ public class CodingTaskService {
         );
         return save(evolve(
                 stopped,
-                CodingTaskStage.FAILED, current.summary(),
+                terminalStage, current.summary(),
                 current.consumedFiles(), current.consumedBytes(),
                 current.consumedBuildExecutions(), current.consumedDurationMs(),
                 current.repairAttempts(), current.patches(), verification,
                 current.buildAttempts(), appendEvent(current.events(), eventType, message),
                 current.workspaceId(), "", message
         ));
+    }
+
+    private CodingTask ensureExecutionAllowed(CodingTask fallback) {
+        CodingTask latest = taskRepository.findById(fallback.taskId()).orElse(fallback);
+        if (latest.stage() == CodingTaskStage.CANCELLED
+                || latest.stage() == CodingTaskStage.TIMED_OUT) {
+            throw new TaskControlSignal();
+        }
+        Instant createdAt = latest.createdAt();
+        if (createdAt != null
+                && !Instant.now().isBefore(createdAt.plusMillis(maxTaskRuntimeMs))) {
+            terminateTask(
+                    latest,
+                    CodingTaskStage.TIMED_OUT,
+                    AgentLoopStopCode.DEADLINE_EXCEEDED,
+                    "代码任务超过最长运行时间 " + maxTaskRuntimeMs + "ms，已安全停止",
+                    latest.verification(),
+                    "DEADLINE_EXCEEDED"
+            );
+            throw new TaskControlSignal();
+        }
+        return latest;
     }
 
     private CodingTask recordSkillActivation(
@@ -673,7 +813,14 @@ public class CodingTaskService {
         return save(withAgentLoop(current, next));
     }
 
-    private CodingTask save(CodingTask task) {
+    private synchronized CodingTask save(CodingTask task) {
+        Optional<CodingTask> persisted = taskRepository.findById(task.taskId());
+        if (persisted.isPresent()
+                && (persisted.get().stage() == CodingTaskStage.CANCELLED
+                    || persisted.get().stage() == CodingTaskStage.TIMED_OUT)
+                && task.stage() != persisted.get().stage()) {
+            return persisted.get();
+        }
         CodingTask saved = taskRepository.save(task);
         eventStream.publish(saved);
         return saved;
@@ -744,5 +891,8 @@ public class CodingTaskService {
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("当前Java运行时不支持SHA-256", exception);
         }
+    }
+
+    private static final class TaskControlSignal extends RuntimeException {
     }
 }

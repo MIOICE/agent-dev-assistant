@@ -184,6 +184,68 @@ class CodingTaskServiceTest {
     }
 
     @Test
+    void shouldDeduplicateRepeatedSubmissionWhileTaskIsActive() {
+        Path root = testRoot();
+        CapturingTaskExecutor executor = new CapturingTaskExecutor();
+        CodingTaskService service = service(
+                root, passedRunner(), (workflow, plan, failure, attempt, skills) -> plan,
+                WorkflowStage.COMPLETED, new InMemoryCodingTaskRepository(), executor);
+
+        CodingTask first = service.submit("workflow-1");
+        CodingTask repeated = service.submit("workflow-1");
+
+        assertThat(repeated.taskId()).isEqualTo(first.taskId());
+        assertThat(executor.submitted).isEqualTo(1);
+    }
+
+    @Test
+    void shouldCancelQueuedTaskIdempotentlyAndRejectStaleWorkerUpdate() {
+        Path root = testRoot();
+        CapturingTaskExecutor executor = new CapturingTaskExecutor();
+        CodingTaskService service = service(
+                root, passedRunner(), (workflow, plan, failure, attempt, skills) -> plan,
+                WorkflowStage.COMPLETED, new InMemoryCodingTaskRepository(), executor);
+        CodingTask queued = service.submit("workflow-1");
+
+        CodingTask cancelled = service.cancel(queued.taskId(), "业务方撤回需求");
+        CodingTask repeated = service.cancel(queued.taskId(), "重复点击");
+        executor.pending.run();
+
+        CodingTask persisted = service.get(queued.taskId());
+        assertThat(cancelled.stage()).isEqualTo(CodingTaskStage.CANCELLED);
+        assertThat(cancelled.agentLoop().stopCode()).isEqualTo(AgentLoopStopCode.CANCELLED);
+        assertThat(cancelled.failureMessage()).contains("业务方撤回需求");
+        assertThat(repeated).isEqualTo(cancelled);
+        assertThat(persisted).isEqualTo(cancelled);
+    }
+
+    @Test
+    void shouldStopRecoveredTaskWhenWallClockDeadlineIsExceeded() {
+        Path root = testRoot();
+        InMemoryCodingTaskRepository repository = new InMemoryCodingTaskRepository();
+        Instant old = Instant.now().minusSeconds(2);
+        repository.save(new CodingTask(
+                "task-timeout", "workflow-1", completedWorkflow(),
+                CodingTaskStage.QUEUED, "", AutonomyBudget.safeDefault(),
+                0, 0, 0, 0, 0, List.of(), List.of(), null, List.of(),
+                List.of(CodingTaskEvent.of("QUEUED", "等待执行")),
+                "", "", "", old, old
+        ));
+        CodingTaskService service = service(
+                root, passedRunner(), (workflow, plan, failure, attempt, skills) -> plan,
+                WorkflowStage.COMPLETED, repository, Runnable::run, 10);
+
+        service.recoverInterruptedTasks();
+
+        CodingTask timedOut = service.get("task-timeout");
+        assertThat(timedOut.stage()).isEqualTo(CodingTaskStage.TIMED_OUT);
+        assertThat(timedOut.agentLoop().stopCode())
+                .isEqualTo(AgentLoopStopCode.DEADLINE_EXCEEDED);
+        assertThat(timedOut.events()).extracting(CodingTaskEvent::type)
+                .contains("RECOVERED", "DEADLINE_EXCEEDED");
+    }
+
+    @Test
     void shouldResumeInterruptedTaskFromCheckpoint() {
         Path root = testRoot();
         InMemoryCodingTaskRepository repository = new InMemoryCodingTaskRepository();
@@ -236,6 +298,18 @@ class CodingTaskServiceTest {
             CodingTaskRepository repository,
             TaskExecutor executor
     ) {
+        return service(root, runner, repairer, stage, repository, executor, 300_000);
+    }
+
+    private CodingTaskService service(
+            Path root,
+            SandboxBuildRunner runner,
+            CodePatchRepairer repairer,
+            WorkflowStage stage,
+            CodingTaskRepository repository,
+            TaskExecutor executor,
+            long maxTaskRuntimeMs
+    ) {
         RequirementWorkflowService workflowService = mock(RequirementWorkflowService.class);
         WorkflowState workflow = mock(WorkflowState.class);
         when(workflowService.get("workflow-1")).thenReturn(workflow);
@@ -263,7 +337,8 @@ class CodingTaskServiceTest {
                 new CodingTaskEventStream(),
                 executor,
                 sandbox.toString(),
-                approved.toString()
+                approved.toString(),
+                maxTaskRuntimeMs
         );
     }
 
@@ -303,9 +378,11 @@ class CodingTaskServiceTest {
 
     private static final class CapturingTaskExecutor implements TaskExecutor {
         private Runnable pending;
+        private int submitted;
 
         @Override
         public void execute(Runnable task) {
+            submitted++;
             this.pending = task;
         }
     }

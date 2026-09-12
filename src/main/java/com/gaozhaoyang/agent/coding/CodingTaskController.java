@@ -44,6 +44,19 @@ public class CodingTaskController {
                         "当前工作流还没有代码任务：" + workflowId));
     }
 
+    @GetMapping("/runtime")
+    public CodingTaskRuntimeStatus runtime() {
+        return codingTaskService.runtimeStatus();
+    }
+
+    @PostMapping("/{taskId}/cancellation")
+    public CodingTask cancel(
+            @PathVariable String taskId,
+            @Valid @RequestBody CodingTaskCancellationRequest request
+    ) {
+        return codingTaskService.cancel(taskId, request.reason());
+    }
+
     @PostMapping("/{taskId}/approval")
     public CodingTask approve(
             @PathVariable String taskId,

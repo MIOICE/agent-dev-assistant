@@ -25,6 +25,7 @@
 - Durable Coding Agent：API 提交后立即进入有界后台队列；从已审批技术方案生成受限 Java 补丁，在无网络 Docker 沙箱中离线测试，失败时依据构建证据最多自动修复两轮，并通过文件 Checkpoint 支持服务重启恢复。
 - 受控 Agent Loop：将编码过程显式建模为“观察状态→选择行动→执行→验证结果”，逐步记录生成、沙箱测试、证据修复和人工审批轨迹；同时限制最多 8 个 Agent 步骤，并通过补丁与失败证据 SHA-256 指纹识别重复行动，在无进展、执行预算耗尽或需要人工审批时明确停止。
 - 实时任务状态流：使用 Spring MVC `SseEmitter` 将代码任务的完整 Checkpoint 快照主动推送到浏览器；新订阅先读取仓库最新状态，并通过更新时间抑制乱序旧快照，客户端断线后自动重连，SSE 不可用时降级为低频轮询。
+- 后台任务治理：同一工作流的重复提交返回已有任务，避免重复生成；支持持久化取消、任务级运行期限、队列拒绝记录和线程池运行状态查询。取消采用协作式停止，并在统一保存出口阻止过期工作线程覆盖 `CANCELLED/TIMED_OUT` Checkpoint。
 - 端到端 Agent Trace：以 `workflowId` 关联需求分析、Agentic RAG、Spring AI/MCP 工具调用、后台 Coding Agent、Agent Loop 与 Docker 构建；统一展示 Span 类型、状态、耗时和调用统计，并对暂不可得的 Token Usage 显式标记而非伪造。
 - Agent Skills：以标准 `SKILL.md` 封装 Java 生成、失败修复、安全复核和导出可靠性方法；先按生成/修复阶段缩小候选集，再用本地 BGE 语义相似度按需加载正文，并记录路由分数与任务级激活轨迹。
 - Skill 供应链防护：启动时校验技能名称、阶段、宿主工具白名单、内容大小和 SHA-256 受信任清单；摘要不一致或越权声明会直接拒绝启动。
@@ -238,8 +239,10 @@ Invoke-RestMethod -Uri "http://localhost:8080/api/system/status" -Method Get |
 | POST | `/api/coding-tasks?workflowId=...` | 提交后台代码任务，返回 HTTP 202 与当前快照 |
 | GET | `/api/coding-tasks/{taskId}` | 查询后台阶段、Checkpoint、修复与构建记录 |
 | GET | `/api/coding-tasks/{taskId}/stream` | 通过 SSE 实时订阅最新代码任务完整快照 |
+| GET | `/api/coding-tasks/runtime` | 查询执行线程、排队任务、队列余量和任务运行期限 |
 | GET | `/api/observability/traces/{workflowId}` | 汇总工作流、工具、Coding Loop 与沙箱构建的端到端 Trace |
 | GET | `/api/coding-tasks/workflow/{workflowId}` | 查询工作流对应的代码任务 |
+| POST | `/api/coding-tasks/{taskId}/cancellation` | 幂等取消排队、执行中或等待审批的代码任务 |
 | POST | `/api/coding-tasks/{taskId}/approval` | 人工批准测试通过的代码产物 |
 | GET | `/api/system/status` | 查看模型与仓库运行模式 |
 
@@ -280,3 +283,5 @@ Claim–Evidence 人工金标评测见 [docs/MILESTONE-13-CLAIM-EVIDENCE-EVALS.m
 SSE 实时任务状态流、断线恢复与轮询降级见 [docs/MILESTONE-17-SSE-TASK-STREAM.md](docs/MILESTONE-17-SSE-TASK-STREAM.md)。
 
 跨工作流、工具、Coding Agent 与沙箱构建的统一 Trace 见 [docs/MILESTONE-18-END-TO-END-OBSERVABILITY.md](docs/MILESTONE-18-END-TO-END-OBSERVABILITY.md)。
+
+幂等提交、协作式取消、运行期限与队列可视化见 [docs/MILESTONE-19-TASK-RUNTIME-GOVERNANCE.md](docs/MILESTONE-19-TASK-RUNTIME-GOVERNANCE.md)。

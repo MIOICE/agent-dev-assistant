@@ -14,6 +14,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -59,5 +60,44 @@ class CodingTaskControllerTest {
                 .getAnnotation(GetMapping.class);
         assertThat(mapping.value()).containsExactly("/{taskId}/stream");
         assertThat(mapping.produces()).containsExactly(MediaType.TEXT_EVENT_STREAM_VALUE);
+    }
+
+    @Test
+    void shouldCancelTaskThroughControlEndpoint() throws Exception {
+        CodingTaskService service = mock(CodingTaskService.class);
+        Instant now = Instant.now();
+        CodingTask cancelled = new CodingTask(
+                "task-1", "workflow-1", null, CodingTaskStage.CANCELLED, "",
+                AutonomyBudget.safeDefault(), 0, 0, 0, 0, 0,
+                List.of(), List.of(), null, List.of(), List.of(),
+                "", "", "用户取消代码任务：需求撤回", now, now
+        );
+        when(service.cancel("task-1", "需求撤回")).thenReturn(cancelled);
+        MockMvc mockMvc = MockMvcBuilders
+                .standaloneSetup(new CodingTaskController(service))
+                .build();
+
+        mockMvc.perform(post("/api/coding-tasks/task-1/cancellation")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"需求撤回\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.stage").value("CANCELLED"))
+                .andExpect(jsonPath("$.failureMessage").value("用户取消代码任务：需求撤回"));
+    }
+
+    @Test
+    void shouldExposeExecutorRuntimeStatus() throws Exception {
+        CodingTaskService service = mock(CodingTaskService.class);
+        when(service.runtimeStatus()).thenReturn(
+                new CodingTaskRuntimeStatus(2, 1, 2, 3, 17, 1, 300_000));
+        MockMvc mockMvc = MockMvcBuilders
+                .standaloneSetup(new CodingTaskController(service))
+                .build();
+
+        mockMvc.perform(get("/api/coding-tasks/runtime"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.corePoolSize").value(2))
+                .andExpect(jsonPath("$.queuedTasks").value(3))
+                .andExpect(jsonPath("$.maxTaskRuntimeMs").value(300000));
     }
 }

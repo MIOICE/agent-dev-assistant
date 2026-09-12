@@ -7,5 +7,7 @@ public enum CodingTaskStage {
     REPAIRING,
     WAITING_APPROVAL,
     PUBLISHED,
+    CANCELLED,
+    TIMED_OUT,
     FAILED
 }

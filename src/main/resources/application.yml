@@ -83,6 +83,7 @@ app:
     executor:
       core-pool-size: ${CODING_EXECUTOR_THREADS:2}
       queue-capacity: ${CODING_EXECUTOR_QUEUE_CAPACITY:20}
+      max-task-runtime-ms: ${CODING_MAX_TASK_RUNTIME_MS:300000}
   embedding:
     tokenizer-uri: file:F:/ai-models/bge-small-zh-v1.5/tokenizer.json
     model-uri: file:F:/ai-models/bge-small-zh-v1.5/model_optimized.onnx
