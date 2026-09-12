@@ -6,6 +6,7 @@ import com.gaozhaoyang.agent.workflow.WorkflowState;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.task.TaskExecutor;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -61,6 +62,32 @@ class CodingTaskServiceTest {
         assertThat(Path.of(published.approvedOutputPath())
                 .resolve("src/main/java/demo/generated/OrderExportPolicy.java"))
                 .exists();
+    }
+
+    @Test
+    void shouldRejectTamperedBuildDescriptorWithoutLeavingPartialRelease() throws IOException {
+        Path root = testRoot();
+        CodingTaskService service = service(
+                root,
+                passedRunner(),
+                (workflow, plan, failure, attempt, skills) -> plan,
+                WorkflowStage.COMPLETED,
+                new InMemoryCodingTaskRepository(),
+                Runnable::run
+        );
+        CodingTask generated = service.submit("workflow-1");
+        Path pom = root.resolve("sandboxes")
+                .resolve(generated.workspaceId())
+                .resolve("pom.xml");
+        Files.writeString(pom, "<project>tampered</project>");
+
+        assertThatThrownBy(() -> service.approve(generated.taskId(), "approve"))
+                .isInstanceOf(CodingTaskException.class)
+                .hasMessageContaining("pom.xml");
+        assertThat(root.resolve("approved").resolve(generated.taskId()))
+                .doesNotExist();
+        assertThat(service.get(generated.taskId()).stage())
+                .isEqualTo(CodingTaskStage.WAITING_APPROVAL);
     }
 
     @Test

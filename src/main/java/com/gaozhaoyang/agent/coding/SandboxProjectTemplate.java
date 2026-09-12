@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
 
 @Component
 public class SandboxProjectTemplate {
@@ -47,5 +48,19 @@ public class SandboxProjectTemplate {
     public void initialize(Path workspace) throws IOException {
         Files.createDirectories(workspace);
         Files.writeString(workspace.resolve("pom.xml"), POM, StandardCharsets.UTF_8);
+    }
+
+    public byte[] readVerifiedBuildDescriptor(Path pomFile) throws IOException {
+        byte[] expected = POM.getBytes(StandardCharsets.UTF_8);
+        if (!Files.isRegularFile(pomFile)
+                || Files.isSymbolicLink(pomFile)
+                || Files.size(pomFile) != expected.length) {
+            throw new CodingTaskException("受信任构建描述 pom.xml 在验证后发生变化");
+        }
+        byte[] actual = Files.readAllBytes(pomFile);
+        if (!MessageDigest.isEqual(expected, actual)) {
+            throw new CodingTaskException("受信任构建描述 pom.xml 在验证后发生变化");
+        }
+        return actual;
     }
 }

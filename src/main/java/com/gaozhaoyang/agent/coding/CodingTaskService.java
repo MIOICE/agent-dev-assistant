@@ -20,7 +20,6 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
@@ -255,18 +254,33 @@ public class CodingTaskService {
         }
 
         try {
-            Path output = prepareTaskDirectory(approvedRoot, taskId);
-            Files.copy(workspace.resolve("pom.xml"), output.resolve("pom.xml"));
+            Path buildDescriptor = workspace.resolve("pom.xml");
+            byte[] verifiedBuildDescriptor = projectTemplate
+                    .readVerifiedBuildDescriptor(buildDescriptor);
+            Map<String, byte[]> verifiedPatchContents = new HashMap<>();
             for (PatchFile patch : current.patches()) {
                 Path source = sandboxPolicy.resolveContained(workspace, patch.relativePath());
+                if (!Files.isRegularFile(source)
+                        || Files.isSymbolicLink(source)
+                        || Files.size(source) != patch.bytes()) {
+                    throw new CodingTaskException(
+                            "沙箱文件在审批前发生变化，拒绝发布：" + patch.relativePath());
+                }
                 byte[] content = Files.readAllBytes(source);
                 if (!sha256(content).equals(patch.sha256())) {
                     throw new CodingTaskException(
                             "沙箱文件在审批前发生变化，拒绝发布：" + patch.relativePath());
                 }
+                verifiedPatchContents.put(patch.relativePath(), content);
+            }
+
+            Path output = prepareTaskDirectory(approvedRoot, taskId);
+            Files.write(output.resolve("pom.xml"), verifiedBuildDescriptor);
+            for (PatchFile patch : current.patches()) {
+                byte[] content = verifiedPatchContents.get(patch.relativePath());
                 Path target = sandboxPolicy.resolveContained(output, patch.relativePath());
                 Files.createDirectories(target.getParent());
-                Files.copy(source, target, StandardCopyOption.COPY_ATTRIBUTES);
+                Files.write(target, content);
             }
             String normalizedComment = comment == null ? "" : comment.trim();
             CodingTask published = evolve(
