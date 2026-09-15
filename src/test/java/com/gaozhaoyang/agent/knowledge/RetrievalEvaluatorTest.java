@@ -57,6 +57,12 @@ class RetrievalEvaluatorTest {
         assertThat(report.precisionAtK()).isEqualTo(0.5);
         assertThat(report.meanReciprocalRank()).isEqualTo(1.0);
         assertThat(report.irrelevantRejectionRate()).isEqualTo(1.0);
+        assertThat(report.categoryMetrics().get("GENERAL").passRate())
+                .isEqualTo(1.0);
+        assertThat(report.difficultyMetrics().get("MEDIUM").totalCases())
+                .isEqualTo(2);
+        assertThat(report.cases()).allMatch(result ->
+                "MEDIUM".equals(result.difficulty()));
         assertThat(report.cases()).allMatch(
                 RetrievalEvaluationReport.CaseResult::passed
         );

@@ -32,6 +32,10 @@ class ClaimEvidenceEvaluatorTest {
         assertThat(report.macroRecall()).isEqualTo(0.6667);
         assertThat(report.confusionMatrix().get("CONTRADICTED"))
                 .containsEntry("INSUFFICIENT", 1);
+        assertThat(report.difficultyMetrics().get("MEDIUM").totalCases())
+                .isEqualTo(3);
+        assertThat(report.difficultyMetrics().get("MEDIUM").accuracy())
+                .isEqualTo(0.6667);
     }
 
     @Test

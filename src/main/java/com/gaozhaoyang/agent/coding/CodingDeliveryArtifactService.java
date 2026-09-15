@@ -24,7 +24,7 @@ import java.util.zip.ZipOutputStream;
 public class CodingDeliveryArtifactService {
 
     private static final long MAX_SOURCE_BYTES = 2_000_000;
-    private static final String MANIFEST_VERSION = "agent-delivery-v1";
+    private static final String MANIFEST_VERSION = "agent-delivery-v2";
 
     private final CodingTaskService codingTaskService;
     private final SandboxPolicy sandboxPolicy;
@@ -100,12 +100,17 @@ public class CodingDeliveryArtifactService {
             }
             zipEntries.put("changes/approved.patch", combinedDiff);
             zipEntries.put("evidence/build-summary.txt", buildSummary);
+            zipEntries.put("APPLYING.md", applyingGuide(task).getBytes(StandardCharsets.UTF_8));
 
-            DeliveryArtifactManifest manifest = manifest(task, files, buildSummary);
+            List<DeliveryArtifactManifest.FileEntry> contents = zipEntries.entrySet().stream()
+                    .map(entry -> new DeliveryArtifactManifest.FileEntry(
+                            entry.getKey(), "CONTENT", entry.getValue().length,
+                            sha256(entry.getValue())))
+                    .toList();
+            DeliveryArtifactManifest manifest = manifest(task, files, contents, buildSummary);
             byte[] manifestJson = objectMapper.writerWithDefaultPrettyPrinter()
                     .writeValueAsBytes(manifest);
             zipEntries.put("delivery-manifest.json", manifestJson);
-            zipEntries.put("APPLYING.md", applyingGuide(task).getBytes(StandardCharsets.UTF_8));
 
             byte[] zip = deterministicZip(zipEntries);
             return new DeliveryArtifactBundle(
@@ -166,6 +171,7 @@ public class CodingDeliveryArtifactService {
     private DeliveryArtifactManifest manifest(
             CodingTask task,
             List<DeliveryArtifactManifest.FileEntry> files,
+            List<DeliveryArtifactManifest.FileEntry> contents,
             byte[] buildSummary
     ) {
         BuildVerification verification = task.verification();
@@ -189,6 +195,7 @@ public class CodingDeliveryArtifactService {
                 task.consumedBuildExecutions(),
                 task.repairAttempts(),
                 task.activatedSkills(),
+                contents,
                 files
         );
     }

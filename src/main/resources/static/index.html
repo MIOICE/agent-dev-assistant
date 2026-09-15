@@ -662,6 +662,9 @@
             chunkGrid.append(card);
         });
 
+        appendEvaluationBreakdown(chunkGrid, '按类别定位', report.categoryMetrics);
+        appendEvaluationBreakdown(chunkGrid, '按难度定位', report.difficultyMetrics);
+
         report.cases.forEach(item => {
             const card = document.createElement('article');
             card.className = 'chunk-card';
@@ -670,7 +673,8 @@
             status.className = item.passed
                 ? 'evaluation-pass'
                 : 'evaluation-fail';
-            status.textContent = item.passed ? '通过' : '未通过';
+            status.textContent = `${item.passed ? '通过' : '未通过'} · ` +
+                `${item.category || 'GENERAL'} · ${item.difficulty || 'MEDIUM'}`;
 
             const title = document.createElement('h3');
             title.className = 'chunk-title';
@@ -691,6 +695,24 @@
             card.append(status, title, expected, actual);
             chunkGrid.append(card);
         });
+    }
+
+    function appendEvaluationBreakdown(container, titleText, segments) {
+        if (!segments || Object.keys(segments).length === 0) return;
+        const card = document.createElement('article');
+        card.className = 'chunk-card';
+        const title = document.createElement('h3');
+        title.className = 'chunk-title';
+        title.textContent = titleText;
+        const detail = document.createElement('p');
+        detail.className = 'chunk-content';
+        detail.textContent = Object.entries(segments).map(([name, item]) =>
+            `${name}：${item.totalCases} 条，通过 ${(item.passRate * 100).toFixed(1)}%` +
+            (item.positiveCases ? `，Hit ${(item.hitAtK * 100).toFixed(1)}%` : '') +
+            (item.negativeCases ? `，拒答 ${(item.irrelevantRejectionRate * 100).toFixed(1)}%` : '')
+        ).join('\n');
+        card.append(title, detail);
+        container.append(card);
     }
 
     async function compareThresholds() {

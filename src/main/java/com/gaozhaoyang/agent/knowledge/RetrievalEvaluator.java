@@ -6,6 +6,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.function.Function;
 
 @Component
 public class RetrievalEvaluator {
@@ -102,6 +105,8 @@ public class RetrievalEvaluator {
                 average(negativeResults.stream()
                         .map(result -> result.rejected() ? 1.0 : 0.0)
                         .toList()),
+                breakdown(caseResults, RetrievalEvaluationReport.CaseResult::category),
+                breakdown(caseResults, RetrievalEvaluationReport.CaseResult::difficulty),
                 caseResults
         );
     }
@@ -128,6 +133,8 @@ public class RetrievalEvaluator {
             return new RetrievalEvaluationReport.CaseResult(
                     evaluationCase.id(),
                     evaluationCase.query(),
+                    evaluationCase.category(),
+                    evaluationCase.difficulty(),
                     evaluationCase.relevantSourceIds(),
                     retrievedSourceIds,
                     false,
@@ -159,6 +166,8 @@ public class RetrievalEvaluator {
         return new RetrievalEvaluationReport.CaseResult(
                 evaluationCase.id(),
                 evaluationCase.query(),
+                evaluationCase.category(),
+                evaluationCase.difficulty(),
                 evaluationCase.relevantSourceIds(),
                 retrievedSourceIds,
                 hit,
@@ -178,6 +187,42 @@ public class RetrievalEvaluator {
                 .mapToDouble(Double::doubleValue)
                 .average()
                 .orElse(0.0);
+    }
+
+    private Map<String, RetrievalEvaluationReport.SegmentMetrics> breakdown(
+            List<RetrievalEvaluationReport.CaseResult> results,
+            Function<RetrievalEvaluationReport.CaseResult, String> classifier
+    ) {
+        Map<String, List<RetrievalEvaluationReport.CaseResult>> groups =
+                new LinkedHashMap<>();
+        for (RetrievalEvaluationReport.CaseResult result : results) {
+            groups.computeIfAbsent(classifier.apply(result), ignored ->
+                    new java.util.ArrayList<>()).add(result);
+        }
+        Map<String, RetrievalEvaluationReport.SegmentMetrics> metrics =
+                new LinkedHashMap<>();
+        groups.forEach((name, group) -> metrics.put(name, segmentMetrics(group)));
+        return Map.copyOf(metrics);
+    }
+
+    private RetrievalEvaluationReport.SegmentMetrics segmentMetrics(
+            List<RetrievalEvaluationReport.CaseResult> results
+    ) {
+        List<RetrievalEvaluationReport.CaseResult> positive = results.stream()
+                .filter(result -> !result.expectedSourceIds().isEmpty())
+                .toList();
+        List<RetrievalEvaluationReport.CaseResult> negative = results.stream()
+                .filter(result -> result.expectedSourceIds().isEmpty())
+                .toList();
+        return new RetrievalEvaluationReport.SegmentMetrics(
+                results.size(),
+                positive.size(),
+                negative.size(),
+                average(results.stream().map(result -> result.passed() ? 1.0 : 0.0).toList()),
+                average(positive.stream().map(result -> result.hit() ? 1.0 : 0.0).toList()),
+                average(positive.stream().map(RetrievalEvaluationReport.CaseResult::reciprocalRank).toList()),
+                average(negative.stream().map(result -> result.rejected() ? 1.0 : 0.0).toList())
+        );
     }
 
     private List<Double> parseThresholds(String configuredThresholds) {

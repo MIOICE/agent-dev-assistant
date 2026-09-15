@@ -1,86 +1,64 @@
 [
-  {
-    "id": "CE-SUP-001",
-    "claim": "预计导出超过一万条记录时应转为异步任务。",
-    "evidence": "当导出结果预计超过一万条时，必须创建异步导出任务，不得在同步请求中一次性生成文件。",
-    "expectedVerdict": "SUPPORTED",
-    "tags": ["导出", "性能"]
-  },
-  {
-    "id": "CE-SUP-002",
-    "claim": "错误订单删除应采用逻辑删除。",
-    "evidence": "错误订单默认通过 deleted 字段执行逻辑删除，保留原始记录以满足审计和恢复要求。",
-    "expectedVerdict": "SUPPORTED",
-    "tags": ["订单", "删除"]
-  },
-  {
-    "id": "CE-SUP-003",
-    "claim": "订单状态变更必须校验当前状态与目标状态是否合法。",
-    "evidence": "修改订单状态前，系统必须按照状态机逐条验证当前状态到目标状态的迁移是否合法。",
-    "expectedVerdict": "SUPPORTED",
-    "tags": ["订单", "状态机"]
-  },
-  {
-    "id": "CE-SUP-004",
-    "claim": "全量导出必须校验用户角色与数据权限。",
-    "evidence": "执行全量导出前必须同时校验角色权限和数据范围，无权限用户不得获取导出文件。",
-    "expectedVerdict": "SUPPORTED",
-    "tags": ["导出", "权限"]
-  },
-  {
-    "id": "CE-CON-001",
-    "claim": "普通业务用户可以直接执行全量订单导出。",
-    "evidence": "全量订单导出属于高风险操作，仅管理员可以发起，普通业务用户必须被拒绝。",
-    "expectedVerdict": "CONTRADICTED",
-    "tags": ["导出", "权限"]
-  },
-  {
-    "id": "CE-CON-002",
-    "claim": "错误订单应直接物理删除且无需保留记录。",
-    "evidence": "错误订单禁止直接物理删除，应使用逻辑删除并保留记录用于审计和恢复。",
-    "expectedVerdict": "CONTRADICTED",
-    "tags": ["订单", "删除"]
-  },
-  {
-    "id": "CE-CON-003",
-    "claim": "二十万条订单可以在同步 HTTP 请求中一次性导出。",
-    "evidence": "超过一万条的导出必须异步执行；同步请求不得处理十万级数据，以避免超时和内存风险。",
-    "expectedVerdict": "CONTRADICTED",
-    "tags": ["导出", "性能"]
-  },
-  {
-    "id": "CE-CON-004",
-    "claim": "订单状态可以跳过业务流程任意修改。",
-    "evidence": "订单状态只能按照配置的业务流程迁移，发现非法目标状态时必须拒绝并返回具体原因。",
-    "expectedVerdict": "CONTRADICTED",
-    "tags": ["订单", "状态机"]
-  },
-  {
-    "id": "CE-INS-001",
-    "claim": "导出文件必须保留七天。",
-    "evidence": "系统需要记录导出任务的操作人、操作时间和执行结果，方便后续审计。",
-    "expectedVerdict": "INSUFFICIENT",
-    "tags": ["导出", "生命周期"]
-  },
-  {
-    "id": "CE-INS-002",
-    "claim": "导出接口必须支持每秒一千次请求。",
-    "evidence": "上线前应完成导出接口的性能测试，并根据实际数据量设置合理的限流策略。",
-    "expectedVerdict": "INSUFFICIENT",
-    "tags": ["接口", "性能"]
-  },
-  {
-    "id": "CE-INS-003",
-    "claim": "CSV 文件编码必须使用 UTF-8 BOM。",
-    "evidence": "订单导出支持 CSV 格式，具体字段范围需要在开发前由业务负责人确认。",
-    "expectedVerdict": "INSUFFICIENT",
-    "tags": ["导出", "文件格式"]
-  },
-  {
-    "id": "CE-INS-004",
-    "claim": "任务结果必须在 Redis 中缓存四十八小时。",
-    "evidence": "对于重复查询可以评估使用缓存，但应根据数据一致性要求选择具体实现。",
-    "expectedVerdict": "INSUFFICIENT",
-    "tags": ["缓存", "Redis"]
-  }
+  {"id":"CE-SUP-001","claim":"预计导出超过一万条记录时应转为异步任务。","evidence":"当导出结果预计超过一万条时，必须创建异步导出任务，不得在同步请求中一次性生成文件。","expectedVerdict":"SUPPORTED","tags":["导出","性能"],"difficulty":"EASY"},
+  {"id":"CE-SUP-002","claim":"错误订单删除应采用逻辑删除。","evidence":"错误订单默认通过 deleted 字段执行逻辑删除，保留原始记录以满足审计和恢复要求。","expectedVerdict":"SUPPORTED","tags":["订单","删除"],"difficulty":"EASY"},
+  {"id":"CE-SUP-003","claim":"订单状态变更前必须校验状态迁移是否合法。","evidence":"修改订单状态前，系统必须逐条验证当前状态到目标状态的迁移是否合法。","expectedVerdict":"SUPPORTED","tags":["订单","状态机"],"difficulty":"EASY"},
+  {"id":"CE-SUP-004","claim":"全量导出必须校验角色权限与数据权限。","evidence":"执行全量导出前必须同时校验功能权限和数据范围，无权限用户不得获取文件。","expectedVerdict":"SUPPORTED","tags":["导出","权限"],"difficulty":"EASY"},
+  {"id":"CE-SUP-005","claim":"订单批量操作需要记录成功数和失败数。","evidence":"批量操作必须记录操作人、操作时间、目标状态、成功数量和失败数量。","expectedVerdict":"SUPPORTED","tags":["订单","审计"],"difficulty":"EASY"},
+  {"id":"CE-SUP-006","claim":"导出文件的下载地址应设置有效期。","evidence":"下载地址应设置有效期，避免其他用户通过复制链接获得敏感数据。","expectedVerdict":"SUPPORTED","tags":["导出","安全"],"difficulty":"EASY"},
+  {"id":"CE-SUP-007","claim":"后端接口不能仅依赖前端按钮控制权限。","evidence":"后端接口不能只依赖前端按钮是否显示，必须独立校验功能与数据权限。","expectedVerdict":"SUPPORTED","tags":["权限","后端"],"difficulty":"EASY"},
+  {"id":"CE-SUP-008","claim":"普通日志不应记录完整手机号。","evidence":"客户手机号属于敏感信息，不得在普通应用日志中输出完整敏感数据。","expectedVerdict":"SUPPORTED","tags":["日志","敏感数据"],"difficulty":"EASY"},
+  {"id":"CE-SUP-009","claim":"导出结果应与页面筛选条件保持一致。","evidence":"页面展示结果与导出结果应采用一致的筛选规则，避免数据不一致。","expectedVerdict":"SUPPORTED","tags":["导出","一致性"],"difficulty":"EASY"},
+  {"id":"CE-SUP-010","claim":"物理删除订单需要额外审批。","evidence":"物理删除属于高风险操作，需要额外审批，不允许普通业务用户直接执行。","expectedVerdict":"SUPPORTED","tags":["订单","审批"],"difficulty":"EASY"},
+  {"id":"CE-SUP-011","claim":"批量状态修改出现非法记录时需要返回失败订单和原因。","evidence":"存在非法状态时不得静默跳过，应返回失败订单及具体原因。","expectedVerdict":"SUPPORTED","tags":["状态机","失败处理"],"difficulty":"MEDIUM"},
+  {"id":"CE-SUP-012","claim":"导出任务应同时限制单次规模和并发数量。","evidence":"系统需要限制单次导出规模、并发任务数量和文件保存时间。","expectedVerdict":"SUPPORTED","tags":["导出","限流"],"difficulty":"MEDIUM"},
+  {"id":"CE-SUP-013","claim":"审计记录需要包含目标对象以及请求结果。","evidence":"系统必须记录操作人、操作时间、操作类型、目标对象、请求结果和失败原因。","expectedVerdict":"SUPPORTED","tags":["审计","追踪"],"difficulty":"MEDIUM"},
+  {"id":"CE-SUP-014","claim":"错误订单进入支付流程后，删除前仍需检查业务状态。","evidence":"逻辑删除前需要确认订单是否已经进入支付、发货或结算流程。","expectedVerdict":"SUPPORTED","tags":["订单","删除"],"difficulty":"MEDIUM"},
+  {"id":"CE-SUP-015","claim":"导出与日志都应遵循敏感字段最小必要原则。","evidence":"导出和日志记录时应遵循最小必要原则，不需要展示的字段应隐藏或脱敏。","expectedVerdict":"SUPPORTED","tags":["导出","敏感数据"],"difficulty":"MEDIUM"},
+  {"id":"CE-SUP-016","claim":"批量处理允许部分成功时仍需向用户展示可追踪结果。","evidence":"发生部分失败时，需要明确全部回滚还是允许部分成功，并向用户展示可追踪的处理结果。","expectedVerdict":"SUPPORTED","tags":["批量操作","一致性"],"difficulty":"HARD"},
+  {"id":"CE-SUP-017","claim":"用户拥有导出功能权限也只能导出其数据权限覆盖的订单。","evidence":"功能权限决定能否执行操作，数据权限决定可以访问哪些组织、客户或订单，两者必须同时校验。","expectedVerdict":"SUPPORTED","tags":["权限","数据范围"],"difficulty":"HARD"},
+  {"id":"CE-SUP-018","claim":"大批量导出不应让浏览器请求长时间阻塞。","evidence":"预计超过一万条数据时应采用异步导出，不应让浏览器请求长时间阻塞。","expectedVerdict":"SUPPORTED","tags":["异步","性能"],"difficulty":"MEDIUM"},
+  {"id":"CE-SUP-019","claim":"导出任务失败时既要记录原因也要向用户明确提示。","evidence":"导出任务失败时，应记录失败原因并提供明确提示。","expectedVerdict":"SUPPORTED","tags":["导出","失败处理"],"difficulty":"MEDIUM"},
+  {"id":"CE-SUP-020","claim":"订单批量修改和删除需要在受控事务范围内处理。","evidence":"批量状态修改和删除操作应放在受控事务范围内。","expectedVerdict":"SUPPORTED","tags":["订单","事务"],"difficulty":"MEDIUM"},
+
+  {"id":"CE-CON-001","claim":"普通业务用户可以直接执行全量订单导出。","evidence":"全量订单导出属于高风险操作，仅管理员可以发起，普通业务用户必须被拒绝。","expectedVerdict":"CONTRADICTED","tags":["导出","权限"],"difficulty":"EASY"},
+  {"id":"CE-CON-002","claim":"错误订单应直接物理删除且无需保留记录。","evidence":"错误订单禁止直接物理删除，应使用逻辑删除并保留记录用于审计和恢复。","expectedVerdict":"CONTRADICTED","tags":["订单","删除"],"difficulty":"EASY"},
+  {"id":"CE-CON-003","claim":"二十万条订单可以在同步 HTTP 请求中一次性导出。","evidence":"超过一万条的导出必须异步执行，同步请求不得处理十万级数据。","expectedVerdict":"CONTRADICTED","tags":["导出","性能"],"difficulty":"EASY"},
+  {"id":"CE-CON-004","claim":"订单状态可以跳过业务流程任意修改。","evidence":"订单状态只能按照配置的业务流程迁移，非法目标状态必须被拒绝。","expectedVerdict":"CONTRADICTED","tags":["订单","状态机"],"difficulty":"EASY"},
+  {"id":"CE-CON-005","claim":"只要页面隐藏导出按钮，后端就不需要鉴权。","evidence":"后端接口不能只依赖前端按钮是否显示，必须独立执行权限校验。","expectedVerdict":"CONTRADICTED","tags":["权限","后端"],"difficulty":"EASY"},
+  {"id":"CE-CON-006","claim":"导出链接可以永久有效，方便用户反复下载。","evidence":"下载地址应设置有效期，避免复制链接造成敏感数据泄露。","expectedVerdict":"CONTRADICTED","tags":["导出","链接"],"difficulty":"EASY"},
+  {"id":"CE-CON-007","claim":"批量修改遇到非法订单时可以静默跳过。","evidence":"存在非法状态时不得静默跳过，应返回失败订单及具体原因。","expectedVerdict":"CONTRADICTED","tags":["订单","失败处理"],"difficulty":"EASY"},
+  {"id":"CE-CON-008","claim":"为了排查问题，应在日志中打印完整客户手机号。","evidence":"普通应用日志不得输出完整敏感数据，手机号应隐藏或脱敏。","expectedVerdict":"CONTRADICTED","tags":["日志","敏感数据"],"difficulty":"EASY"},
+  {"id":"CE-CON-009","claim":"导出文件可以忽略页面筛选条件并包含全部数据。","evidence":"页面展示结果与导出结果应采用一致的筛选规则。","expectedVerdict":"CONTRADICTED","tags":["导出","范围"],"difficulty":"EASY"},
+  {"id":"CE-CON-010","claim":"普通用户无需审批即可物理删除订单。","evidence":"物理删除是高风险操作，需要额外审批，不允许普通业务用户直接执行。","expectedVerdict":"CONTRADICTED","tags":["删除","审批"],"difficulty":"EASY"},
+  {"id":"CE-CON-011","claim":"拥有功能权限就意味着可以访问所有组织的订单。","evidence":"功能权限只决定能否执行操作，数据权限另行决定可访问的组织、客户或订单。","expectedVerdict":"CONTRADICTED","tags":["权限","数据范围"],"difficulty":"MEDIUM"},
+  {"id":"CE-CON-012","claim":"导出失败只需在服务器记录，页面无需告知用户。","evidence":"导出失败时既应记录失败原因，也必须向用户提供明确提示。","expectedVerdict":"CONTRADICTED","tags":["失败处理","交互"],"difficulty":"MEDIUM"},
+  {"id":"CE-CON-013","claim":"批量操作不需要记录失败数量。","evidence":"批量操作必须记录成功数量和失败数量。","expectedVerdict":"CONTRADICTED","tags":["审计","批量操作"],"difficulty":"MEDIUM"},
+  {"id":"CE-CON-014","claim":"订单进入结算流程后也可直接删除，无需检查状态。","evidence":"删除前必须确认订单是否进入支付、发货或结算流程。","expectedVerdict":"CONTRADICTED","tags":["订单","业务规则"],"difficulty":"MEDIUM"},
+  {"id":"CE-CON-015","claim":"审计记录允许普通业务用户自行修改。","evidence":"审计记录应防止被普通用户修改，并设置合理的保存期限。","expectedVerdict":"CONTRADICTED","tags":["审计","防篡改"],"difficulty":"MEDIUM"},
+  {"id":"CE-CON-016","claim":"导出敏感字段时遵循最小必要原则意味着应包含尽可能多的数据。","evidence":"最小必要原则要求隐藏或脱敏不需要展示的敏感字段。","expectedVerdict":"CONTRADICTED","tags":["敏感数据","最小权限"],"difficulty":"HARD"},
+  {"id":"CE-CON-017","claim":"允许部分成功时，批量操作不必说明失败记录。","evidence":"即使允许部分成功，也必须向用户展示可追踪的处理结果和失败原因。","expectedVerdict":"CONTRADICTED","tags":["一致性","失败处理"],"difficulty":"HARD"},
+  {"id":"CE-CON-018","claim":"异步导出任务完成后无需任何通知。","evidence":"异步任务完成后应通过页面消息或任务中心通知用户。","expectedVerdict":"CONTRADICTED","tags":["异步","通知"],"difficulty":"HARD"},
+  {"id":"CE-CON-019","claim":"导出操作只校验数据权限，不需要校验功能权限。","evidence":"客户信息和订单导出必须同时校验功能权限与数据权限。","expectedVerdict":"CONTRADICTED","tags":["权限","导出"],"difficulty":"MEDIUM"},
+  {"id":"CE-CON-020","claim":"订单批量修改无需事务控制。","evidence":"批量状态修改和删除操作应放在受控事务范围内。","expectedVerdict":"CONTRADICTED","tags":["事务","订单"],"difficulty":"MEDIUM"},
+
+  {"id":"CE-INS-001","claim":"导出文件必须保留七天。","evidence":"系统需要限制文件保存时间，并记录导出任务的操作人和结果。","expectedVerdict":"INSUFFICIENT","tags":["导出","生命周期"],"difficulty":"EASY"},
+  {"id":"CE-INS-002","claim":"导出接口必须支持每秒一千次请求。","evidence":"上线前应进行性能测试，并根据实际数据量设置合理限流。","expectedVerdict":"INSUFFICIENT","tags":["接口","性能"],"difficulty":"EASY"},
+  {"id":"CE-INS-003","claim":"CSV 文件编码必须使用 UTF-8 BOM。","evidence":"订单导出支持 CSV，具体字符编码需要在开发前确认。","expectedVerdict":"INSUFFICIENT","tags":["导出","编码"],"difficulty":"EASY"},
+  {"id":"CE-INS-004","claim":"任务结果必须在 Redis 中缓存四十八小时。","evidence":"对于重复查询可以评估使用缓存，但应根据一致性要求选择实现。","expectedVerdict":"INSUFFICIENT","tags":["缓存","Redis"],"difficulty":"EASY"},
+  {"id":"CE-INS-005","claim":"异步导出必须使用 Kafka。","evidence":"超过一万条数据时应采用异步导出，并限制并发任务数量。","expectedVerdict":"INSUFFICIENT","tags":["异步","消息队列"],"difficulty":"EASY"},
+  {"id":"CE-INS-006","claim":"审计记录必须永久保存。","evidence":"审计记录应设置合理的保存期限，以支持追踪与安全审计。","expectedVerdict":"INSUFFICIENT","tags":["审计","生命周期"],"difficulty":"EASY"},
+  {"id":"CE-INS-007","claim":"订单状态字段必须使用整数类型。","evidence":"订单状态只能按照配置的业务流程进行合法流转。","expectedVerdict":"INSUFFICIENT","tags":["订单","数据类型"],"difficulty":"EASY"},
+  {"id":"CE-INS-008","claim":"所有订单删除都必须由总经理审批。","evidence":"物理删除需要额外审批，不允许普通业务用户直接执行。","expectedVerdict":"INSUFFICIENT","tags":["删除","审批"],"difficulty":"EASY"},
+  {"id":"CE-INS-009","claim":"导出金额必须保留四位小数。","evidence":"导出前需要明确金额精度和时间格式。","expectedVerdict":"INSUFFICIENT","tags":["导出","金额"],"difficulty":"EASY"},
+  {"id":"CE-INS-010","claim":"导出下载链接有效期必须是三十分钟。","evidence":"下载地址应设置有效期，避免链接被复制后长期访问。","expectedVerdict":"INSUFFICIENT","tags":["导出","链接"],"difficulty":"EASY"},
+  {"id":"CE-INS-011","claim":"批量修改部分失败时必须全部回滚。","evidence":"发生部分失败时，需要明确采用全部回滚还是允许部分成功。","expectedVerdict":"INSUFFICIENT","tags":["事务","回滚"],"difficulty":"MEDIUM"},
+  {"id":"CE-INS-012","claim":"每个用户最多同时创建两个导出任务。","evidence":"系统需要限制并发任务数量，但具体上限应结合容量确定。","expectedVerdict":"INSUFFICIENT","tags":["并发","限流"],"difficulty":"MEDIUM"},
+  {"id":"CE-INS-013","claim":"手机号脱敏必须显示前三位和后四位。","evidence":"不需要展示的敏感字段应进行隐藏或脱敏。","expectedVerdict":"INSUFFICIENT","tags":["敏感数据","脱敏"],"difficulty":"MEDIUM"},
+  {"id":"CE-INS-014","claim":"逻辑删除字段必须命名为 is_deleted。","evidence":"错误订单默认通过 deleted 字段标记并保留原始数据。","expectedVerdict":"INSUFFICIENT","tags":["删除","字段"],"difficulty":"HARD"},
+  {"id":"CE-INS-015","claim":"导出完成后必须发送短信通知。","evidence":"任务完成后应通过页面消息或任务中心通知用户。","expectedVerdict":"INSUFFICIENT","tags":["通知","渠道"],"difficulty":"MEDIUM"},
+  {"id":"CE-INS-016","claim":"审计日志必须存储在 Elasticsearch。","evidence":"系统必须记录操作人、操作类型、结果和失败原因。","expectedVerdict":"INSUFFICIENT","tags":["审计","存储"],"difficulty":"MEDIUM"},
+  {"id":"CE-INS-017","claim":"导出接口必须采用 POST 请求。","evidence":"导出需求必须明确业务对象、范围、字段和文件格式。","expectedVerdict":"INSUFFICIENT","tags":["接口","HTTP"],"difficulty":"MEDIUM"},
+  {"id":"CE-INS-018","claim":"批量操作每批固定处理五百条。","evidence":"批量状态修改应逐条校验，并在受控事务范围内处理。","expectedVerdict":"INSUFFICIENT","tags":["批量操作","分页"],"difficulty":"MEDIUM"},
+  {"id":"CE-INS-019","claim":"客户姓名在所有页面都必须完全隐藏。","evidence":"客户姓名可能属于敏感信息，应按最小必要原则隐藏不需要展示的字段。","expectedVerdict":"INSUFFICIENT","tags":["敏感数据","展示"],"difficulty":"HARD"},
+  {"id":"CE-INS-020","claim":"导出文件必须使用 AES-256 加密。","evidence":"生成文件前必须校验数据权限，并为下载地址设置有效期。","expectedVerdict":"INSUFFICIENT","tags":["导出","加密"],"difficulty":"HARD"}
 ]

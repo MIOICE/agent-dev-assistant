@@ -15,10 +15,12 @@ public record DeliveryArtifactManifest(
         int consumedBuildExecutions,
         int repairAttempts,
         List<String> activatedSkills,
+        List<FileEntry> contents,
         List<FileEntry> files
 ) {
     public DeliveryArtifactManifest {
         activatedSkills = activatedSkills == null ? List.of() : List.copyOf(activatedSkills);
+        contents = contents == null ? List.of() : List.copyOf(contents);
         files = files == null ? List.of() : List.copyOf(files);
     }
 

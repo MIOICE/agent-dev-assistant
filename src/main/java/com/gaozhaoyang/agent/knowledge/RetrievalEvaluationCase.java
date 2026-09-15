@@ -6,7 +6,9 @@ import java.util.Objects;
 public record RetrievalEvaluationCase(
         String id,
         String query,
-        List<String> relevantSourceIds
+        List<String> relevantSourceIds,
+        String category,
+        String difficulty
 ) {
 
     public RetrievalEvaluationCase {
@@ -20,9 +22,28 @@ public record RetrievalEvaluationCase(
             throw new IllegalArgumentException("评测问题不能为空字符串");
         }
         relevantSourceIds = List.copyOf(relevantSourceIds);
+        category = normalize(category, "GENERAL");
+        difficulty = normalize(difficulty, "MEDIUM");
+        if (!List.of("EASY", "MEDIUM", "HARD").contains(difficulty)) {
+            throw new IllegalArgumentException("检索评测难度只允许 EASY、MEDIUM 或 HARD");
+        }
+    }
+
+    public RetrievalEvaluationCase(
+            String id,
+            String query,
+            List<String> relevantSourceIds
+    ) {
+        this(id, query, relevantSourceIds, "GENERAL", "MEDIUM");
     }
 
     public boolean isNegativeCase() {
         return relevantSourceIds.isEmpty();
+    }
+
+    private static String normalize(String value, String fallback) {
+        return value == null || value.isBlank()
+                ? fallback
+                : value.trim().toUpperCase();
     }
 }

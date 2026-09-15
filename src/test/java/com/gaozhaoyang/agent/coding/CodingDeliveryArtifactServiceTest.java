@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -17,6 +18,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
+import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -34,7 +36,8 @@ class CodingDeliveryArtifactServiceTest {
 
         assertThat(first.content()).isEqualTo(second.content());
         assertThat(first.sha256()).isEqualTo(sha256(first.content()));
-        assertThat(first.manifest().schemaVersion()).isEqualTo("agent-delivery-v1");
+        assertThat(first.manifest().schemaVersion()).isEqualTo("agent-delivery-v2");
+        assertThat(first.manifest().contents()).hasSize(6);
         assertThat(first.manifest().files()).hasSize(3);
         assertThat(first.manifest().verification().passed()).isTrue();
         assertThat(zipEntries(first.content())).containsExactly(
@@ -46,6 +49,68 @@ class CodingDeliveryArtifactServiceTest {
                 "project/src/main/java/demo/generated/OrderExport.java",
                 "project/src/test/java/demo/generated/OrderExportTest.java"
         );
+
+        DeliveryArtifactVerificationResult verification =
+                new DeliveryArtifactVerificationService(new ObjectMapper())
+                        .verify(first.content(), first.sha256());
+        assertThat(verification.valid()).isTrue();
+        assertThat(verification.trustedDigestStatus()).isEqualTo("MATCH");
+        assertThat(verification.entriesChecked()).isEqualTo(6);
+        assertThat(verification.warnings()).isEmpty();
+    }
+
+    @Test
+    void shouldDetectContentTamperingInsideDeliveryZip() throws Exception {
+        Fixture fixture = fixture(CodingTaskStage.PUBLISHED);
+        DeliveryArtifactBundle bundle = fixture.service.build("task-1");
+        byte[] tampered = rewriteEntry(
+                bundle.content(),
+                "project/src/main/java/demo/generated/OrderExport.java",
+                "tampered".getBytes(StandardCharsets.UTF_8));
+
+        DeliveryArtifactVerificationResult result =
+                new DeliveryArtifactVerificationService(new ObjectMapper())
+                        .verify(tampered, null);
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errors()).anyMatch(message ->
+                message.contains("完整性校验失败"));
+        assertThat(result.warnings()).anyMatch(message ->
+                message.contains("不能确认发布者身份"));
+    }
+
+    @Test
+    void shouldRejectZipSlipEntryBeforeReadingManifest() throws Exception {
+        byte[] archive;
+        try (ByteArrayOutputStream output = new ByteArrayOutputStream();
+             ZipOutputStream zip = new ZipOutputStream(output, StandardCharsets.UTF_8)) {
+            zip.putNextEntry(new ZipEntry("../outside.txt"));
+            zip.write("unsafe".getBytes(StandardCharsets.UTF_8));
+            zip.closeEntry();
+            zip.finish();
+            archive = output.toByteArray();
+        }
+
+        DeliveryArtifactVerificationResult result =
+                new DeliveryArtifactVerificationService(new ObjectMapper())
+                        .verify(archive, null);
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errors()).contains("交付包包含非法路径");
+    }
+
+    @Test
+    void shouldRejectIncorrectTrustedArchiveDigest() throws Exception {
+        Fixture fixture = fixture(CodingTaskStage.PUBLISHED);
+        DeliveryArtifactBundle bundle = fixture.service.build("task-1");
+
+        DeliveryArtifactVerificationResult result =
+                new DeliveryArtifactVerificationService(new ObjectMapper())
+                        .verify(bundle.content(), "0".repeat(64));
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.trustedDigestStatus()).isEqualTo("MISMATCH");
+        assertThat(result.errors()).contains("压缩包SHA-256与可信摘要不一致");
     }
 
     @Test
@@ -152,6 +217,24 @@ class CodingDeliveryArtifactServiceTest {
             }
         }
         return names;
+    }
+
+    private byte[] rewriteEntry(byte[] archive, String target, byte[] replacement)
+            throws IOException {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        try (ZipInputStream input = new ZipInputStream(
+                new ByteArrayInputStream(archive), StandardCharsets.UTF_8);
+             ZipOutputStream zip = new ZipOutputStream(output, StandardCharsets.UTF_8)) {
+            ZipEntry entry;
+            while ((entry = input.getNextEntry()) != null) {
+                zip.putNextEntry(new ZipEntry(entry.getName()));
+                zip.write(entry.getName().equals(target)
+                        ? replacement
+                        : input.readAllBytes());
+                zip.closeEntry();
+            }
+        }
+        return output.toByteArray();
     }
 
     private static String sha256(byte[] content) {

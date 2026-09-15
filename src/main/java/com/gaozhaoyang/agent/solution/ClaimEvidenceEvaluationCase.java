@@ -8,7 +8,8 @@ public record ClaimEvidenceEvaluationCase(
         String claim,
         String evidence,
         ClaimEvidenceVerdict expectedVerdict,
-        List<String> tags
+        List<String> tags,
+        String difficulty
 ) {
     public ClaimEvidenceEvaluationCase {
         Objects.requireNonNull(id, "评测样例 ID 不能为空");
@@ -19,6 +20,9 @@ public record ClaimEvidenceEvaluationCase(
         claim = claim.trim();
         evidence = evidence.trim();
         tags = tags == null ? List.of() : List.copyOf(tags);
+        difficulty = difficulty == null || difficulty.isBlank()
+                ? "MEDIUM"
+                : difficulty.trim().toUpperCase();
         if (id.isBlank() || claim.isBlank() || evidence.isBlank()) {
             throw new IllegalArgumentException("评测样例 ID、结论和证据不能为空字符串");
         }
@@ -27,5 +31,18 @@ public record ClaimEvidenceEvaluationCase(
                 && expectedVerdict != ClaimEvidenceVerdict.INSUFFICIENT) {
             throw new IllegalArgumentException("金标只允许 SUPPORTED、CONTRADICTED 或 INSUFFICIENT");
         }
+        if (!List.of("EASY", "MEDIUM", "HARD").contains(difficulty)) {
+            throw new IllegalArgumentException("Claim-Evidence 难度只允许 EASY、MEDIUM 或 HARD");
+        }
+    }
+
+    public ClaimEvidenceEvaluationCase(
+            String id,
+            String claim,
+            String evidence,
+            ClaimEvidenceVerdict expectedVerdict,
+            List<String> tags
+    ) {
+        this(id, claim, evidence, expectedVerdict, tags, "MEDIUM");
     }
 }

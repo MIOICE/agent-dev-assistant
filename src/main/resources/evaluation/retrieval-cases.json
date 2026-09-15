@@ -1,42 +1,62 @@
 [
-  {
-    "id": "EVAL-001",
-    "query": "订单全量导出",
-    "relevantSourceIds": ["DOC-EXPORT-001"]
-  },
-  {
-    "id": "EVAL-002",
-    "query": "导出超过一万条数据如何避免请求超时",
-    "relevantSourceIds": ["DOC-EXPORT-001"]
-  },
-  {
-    "id": "EVAL-003",
-    "query": "订单状态怎么批量修改",
-    "relevantSourceIds": ["DOC-ORDER-001"]
-  },
-  {
-    "id": "EVAL-004",
-    "query": "客户订单导出前要检查哪些权限",
-    "relevantSourceIds": ["DOC-AUTH-001", "DOC-EXPORT-001"]
-  },
-  {
-    "id": "EVAL-005",
-    "query": "删除错误订单要记录操作人和时间",
-    "relevantSourceIds": ["DOC-ORDER-001", "DOC-AUTH-001"]
-  },
-  {
-    "id": "EVAL-006",
-    "query": "修改首页背景颜色",
-    "relevantSourceIds": []
-  },
-  {
-    "id": "EVAL-007",
-    "query": "员工请假怎么审批",
-    "relevantSourceIds": []
-  },
-  {
-  "id": "EVAL-008",
-  "query": "导出文件的下载地址需要设置有效期吗",
-  "relevantSourceIds": ["DOC-EXPORT-001"]
-  }
+  {"id":"RET-EXP-001","query":"订单全量导出规范","relevantSourceIds":["DOC-EXPORT-001"],"category":"EXACT","difficulty":"EASY"},
+  {"id":"RET-EXP-002","query":"导出文件支持 Excel 还是 CSV","relevantSourceIds":["DOC-EXPORT-001"],"category":"EXACT","difficulty":"EASY"},
+  {"id":"RET-EXP-003","query":"导出数据范围和筛选条件","relevantSourceIds":["DOC-EXPORT-001"],"category":"EXACT","difficulty":"EASY"},
+  {"id":"RET-EXP-004","query":"超过一万条数据异步导出","relevantSourceIds":["DOC-EXPORT-001"],"category":"EXACT","difficulty":"EASY"},
+  {"id":"RET-EXP-005","query":"导出任务失败原因和提示","relevantSourceIds":["DOC-EXPORT-001"],"category":"EXACT","difficulty":"EASY"},
+  {"id":"RET-EXP-006","query":"导出下载地址有效期","relevantSourceIds":["DOC-EXPORT-001"],"category":"EXACT","difficulty":"EASY"},
+  {"id":"RET-EXP-007","query":"导出文件字符编码和金额精度","relevantSourceIds":["DOC-EXPORT-001"],"category":"EXACT","difficulty":"EASY"},
+  {"id":"RET-EXP-008","query":"限制单次导出规模和并发任务数量","relevantSourceIds":["DOC-EXPORT-001"],"category":"EXACT","difficulty":"EASY"},
+  {"id":"RET-EXP-009","query":"页面筛选结果与导出结果一致","relevantSourceIds":["DOC-EXPORT-001"],"category":"EXACT","difficulty":"EASY"},
+  {"id":"RET-EXP-010","query":"导出完成后怎么通知用户","relevantSourceIds":["DOC-EXPORT-001"],"category":"EXACT","difficulty":"EASY"},
+  {"id":"RET-ORD-001","query":"订单状态批量修改规则","relevantSourceIds":["DOC-ORDER-001"],"category":"EXACT","difficulty":"EASY"},
+  {"id":"RET-ORD-002","query":"非法订单状态不能静默跳过","relevantSourceIds":["DOC-ORDER-001"],"category":"EXACT","difficulty":"EASY"},
+  {"id":"RET-ORD-003","query":"错误订单逻辑删除 deleted 字段","relevantSourceIds":["DOC-ORDER-001"],"category":"EXACT","difficulty":"EASY"},
+  {"id":"RET-ORD-004","query":"物理删除订单需要额外审批","relevantSourceIds":["DOC-ORDER-001"],"category":"EXACT","difficulty":"EASY"},
+  {"id":"RET-ORD-005","query":"订单支付发货结算后能否删除","relevantSourceIds":["DOC-ORDER-001"],"category":"EXACT","difficulty":"EASY"},
+  {"id":"RET-ORD-006","query":"批量修改的成功数量和失败数量","relevantSourceIds":["DOC-ORDER-001"],"category":"EXACT","difficulty":"EASY"},
+  {"id":"RET-ORD-007","query":"订单批量操作事务范围","relevantSourceIds":["DOC-ORDER-001"],"category":"EXACT","difficulty":"EASY"},
+  {"id":"RET-ORD-008","query":"批量处理部分失败是回滚还是继续","relevantSourceIds":["DOC-ORDER-001"],"category":"EXACT","difficulty":"MEDIUM"},
+  {"id":"RET-ORD-009","query":"订单当前状态到目标状态是否合法","relevantSourceIds":["DOC-ORDER-001"],"category":"PARAPHRASE","difficulty":"MEDIUM"},
+  {"id":"RET-ORD-010","query":"误建的单据怎么删才方便恢复","relevantSourceIds":["DOC-ORDER-001"],"category":"PARAPHRASE","difficulty":"MEDIUM"},
+  {"id":"RET-AUTH-001","query":"功能权限与数据权限有什么区别","relevantSourceIds":["DOC-AUTH-001"],"category":"EXACT","difficulty":"EASY"},
+  {"id":"RET-AUTH-002","query":"后端不能只看前端按钮是否显示","relevantSourceIds":["DOC-AUTH-001"],"category":"EXACT","difficulty":"EASY"},
+  {"id":"RET-AUTH-003","query":"客户手机号和地址怎么脱敏","relevantSourceIds":["DOC-AUTH-001"],"category":"EXACT","difficulty":"EASY"},
+  {"id":"RET-AUTH-004","query":"普通日志不能输出完整敏感数据","relevantSourceIds":["DOC-AUTH-001"],"category":"EXACT","difficulty":"EASY"},
+  {"id":"RET-AUTH-005","query":"审计记录需要保存哪些内容","relevantSourceIds":["DOC-AUTH-001"],"category":"EXACT","difficulty":"EASY"},
+  {"id":"RET-AUTH-006","query":"普通用户能不能修改审计记录","relevantSourceIds":["DOC-AUTH-001"],"category":"EXACT","difficulty":"MEDIUM"},
+  {"id":"RET-AUTH-007","query":"用户能看到哪些组织客户和订单由什么控制","relevantSourceIds":["DOC-AUTH-001"],"category":"PARAPHRASE","difficulty":"MEDIUM"},
+  {"id":"RET-AUTH-008","query":"敏感字段是不是越多导出越好","relevantSourceIds":["DOC-AUTH-001"],"category":"PARAPHRASE","difficulty":"MEDIUM"},
+  {"id":"RET-AUTH-009","query":"谁在什么时候对哪个对象做了什么操作","relevantSourceIds":["DOC-AUTH-001"],"category":"PARAPHRASE","difficulty":"MEDIUM"},
+  {"id":"RET-AUTH-010","query":"接口鉴权已经做了前端按钮还够不够","relevantSourceIds":["DOC-AUTH-001"],"category":"PARAPHRASE","difficulty":"MEDIUM"},
+  {"id":"RET-CROSS-001","query":"订单导出时如何同时控制角色和可见数据范围","relevantSourceIds":["DOC-EXPORT-001","DOC-AUTH-001"],"category":"CROSS_DOCUMENT","difficulty":"MEDIUM"},
+  {"id":"RET-CROSS-002","query":"导出客户订单怎样避免链接被别人复制后泄露","relevantSourceIds":["DOC-EXPORT-001","DOC-AUTH-001"],"category":"CROSS_DOCUMENT","difficulty":"HARD"},
+  {"id":"RET-CROSS-003","query":"订单批量删除为什么既要权限检查又要记录失败原因","relevantSourceIds":["DOC-ORDER-001","DOC-AUTH-001"],"category":"CROSS_DOCUMENT","difficulty":"HARD"},
+  {"id":"RET-CROSS-004","query":"批量修改订单后审计日志至少记录什么","relevantSourceIds":["DOC-ORDER-001","DOC-AUTH-001"],"category":"CROSS_DOCUMENT","difficulty":"HARD"},
+  {"id":"RET-CROSS-005","query":"导出大量订单如何兼顾性能和数据安全","relevantSourceIds":["DOC-EXPORT-001","DOC-AUTH-001"],"category":"CROSS_DOCUMENT","difficulty":"HARD"},
+  {"id":"RET-CROSS-006","query":"删除包含客户信息的订单要满足哪些业务与安全约束","relevantSourceIds":["DOC-ORDER-001","DOC-AUTH-001"],"category":"CROSS_DOCUMENT","difficulty":"HARD"},
+  {"id":"RET-CROSS-007","query":"订单列表显示和下载的数据为什么必须采用同一筛选范围","relevantSourceIds":["DOC-EXPORT-001","DOC-AUTH-001"],"category":"CROSS_DOCUMENT","difficulty":"HARD"},
+  {"id":"RET-CROSS-008","query":"错误订单批量处理出现部分失败时怎样保证可追踪","relevantSourceIds":["DOC-ORDER-001","DOC-AUTH-001"],"category":"CROSS_DOCUMENT","difficulty":"HARD"},
+  {"id":"RET-CROSS-009","query":"十万条订单导出不能同步完成还要做哪些权限保护","relevantSourceIds":["DOC-EXPORT-001","DOC-AUTH-001"],"category":"CROSS_DOCUMENT","difficulty":"HARD"},
+  {"id":"RET-CROSS-010","query":"普通业务用户误删已支付订单应该被哪些规则阻止","relevantSourceIds":["DOC-ORDER-001","DOC-AUTH-001"],"category":"CROSS_DOCUMENT","difficulty":"HARD"},
+  {"id":"RET-CROSS-011","query":"批量改状态并立即导出结果需要关注哪些一致性问题","relevantSourceIds":["DOC-ORDER-001","DOC-EXPORT-001"],"category":"CROSS_DOCUMENT","difficulty":"HARD"},
+  {"id":"RET-CROSS-012","query":"订单批处理的结果文件怎样做到失败可见并可审计","relevantSourceIds":["DOC-ORDER-001","DOC-EXPORT-001","DOC-AUTH-001"],"category":"CROSS_DOCUMENT","difficulty":"HARD"},
+  {"id":"RET-CROSS-013","query":"导出订单明细时金额格式、敏感字段和权限分别怎么处理","relevantSourceIds":["DOC-EXPORT-001","DOC-AUTH-001"],"category":"CROSS_DOCUMENT","difficulty":"HARD"},
+  {"id":"RET-CROSS-014","query":"删除和导出为什么都不能只依赖页面按钮控制","relevantSourceIds":["DOC-ORDER-001","DOC-AUTH-001"],"category":"CROSS_DOCUMENT","difficulty":"HARD"},
+  {"id":"RET-CROSS-015","query":"订单数据批量操作如何同时满足事务、回滚和操作审计","relevantSourceIds":["DOC-ORDER-001","DOC-AUTH-001"],"category":"CROSS_DOCUMENT","difficulty":"HARD"},
+  {"id":"RET-NEG-001","query":"公司员工请假审批流程","relevantSourceIds":[],"category":"OUT_OF_SCOPE","difficulty":"EASY"},
+  {"id":"RET-NEG-002","query":"首页背景颜色改成深蓝色","relevantSourceIds":[],"category":"OUT_OF_SCOPE","difficulty":"EASY"},
+  {"id":"RET-NEG-003","query":"会议室预订冲突怎么解决","relevantSourceIds":[],"category":"OUT_OF_SCOPE","difficulty":"EASY"},
+  {"id":"RET-NEG-004","query":"招聘面试评价表模板","relevantSourceIds":[],"category":"OUT_OF_SCOPE","difficulty":"EASY"},
+  {"id":"RET-NEG-005","query":"办公电脑采购申请","relevantSourceIds":[],"category":"OUT_OF_SCOPE","difficulty":"EASY"},
+  {"id":"RET-NEG-006","query":"食堂菜单和餐补标准","relevantSourceIds":[],"category":"OUT_OF_SCOPE","difficulty":"MEDIUM"},
+  {"id":"RET-NEG-007","query":"销售合同盖章审批","relevantSourceIds":[],"category":"OUT_OF_SCOPE","difficulty":"MEDIUM"},
+  {"id":"RET-NEG-008","query":"差旅报销发票要求","relevantSourceIds":[],"category":"OUT_OF_SCOPE","difficulty":"MEDIUM"},
+  {"id":"RET-NEG-009","query":"考勤机无法识别人脸","relevantSourceIds":[],"category":"OUT_OF_SCOPE","difficulty":"MEDIUM"},
+  {"id":"RET-NEG-010","query":"如何重置邮箱密码","relevantSourceIds":[],"category":"OUT_OF_SCOPE","difficulty":"MEDIUM"},
+  {"id":"RET-NEG-011","query":"客户生日短信营销活动","relevantSourceIds":[],"category":"HARD_NEGATIVE","difficulty":"HARD"},
+  {"id":"RET-NEG-012","query":"把网页表格导出成图片作为宣传海报","relevantSourceIds":[],"category":"HARD_NEGATIVE","difficulty":"HARD"},
+  {"id":"RET-NEG-013","query":"删除浏览器下载历史记录","relevantSourceIds":[],"category":"HARD_NEGATIVE","difficulty":"HARD"},
+  {"id":"RET-NEG-014","query":"修改物流订单的地图配色","relevantSourceIds":[],"category":"HARD_NEGATIVE","difficulty":"HARD"},
+  {"id":"RET-NEG-015","query":"导出员工通讯录制作节日贺卡","relevantSourceIds":[],"category":"HARD_NEGATIVE","difficulty":"HARD"}
 ]

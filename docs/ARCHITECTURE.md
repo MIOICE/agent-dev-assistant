@@ -60,7 +60,9 @@
 - `SpringAiSolutionEvidenceCritic` 将结论清单与去重证据字典一次性提交 DeepSeek，避免为每条结论重复传输相同 Chunk。模型输出 `SUPPORTED`、`CONTRADICTED` 或 `INSUFFICIENT`，假设保持独立状态；该节点只提供审批信号，不直接改变权限或执行代码。
 - `SolutionCritiqueAssembler` 不信任模型返回的标识符：只接受 Grounding 中存在的 claim ID，引用必须同时属于该结论的允许集合和最终证据集合。缺失判定标记为 `NOT_EVALUATED`，支持/矛盾判定没有合法引用时降级为 `INSUFFICIENT`。
 - Mock 模式不会用关键词假装完成语义蕴含判断，而是把已关联结论标记为 `NOT_EVALUATED`；DeepSeek 调用或结构化映射失败时也采用同样的保守降级。审查报告随工作流快照持久化，方案驳回重生成后会重新计算，并产生独立 Trace Span。
-- `ClaimEvidenceEvaluator` 使用 12 条人工标注的合成业务样例评估同一个生产 Critic，而不是另写一套测试专用判断逻辑。样例均衡覆盖支持、矛盾和证据不足，组装成一次批量调用并计算评测覆盖率、准确率、各类别召回率、Macro Recall 和混淆矩阵。
+- `ClaimEvidenceEvaluator` 使用 60 条人工标注的合成业务样例评估同一个生产 Critic，而不是另写一套测试专用判断逻辑。样例按支持、矛盾和证据不足各 20 条保持标签平衡，并按 EASY/MEDIUM/HARD 分层；一次批量调用后计算评测覆盖率、准确率、各类别召回率、Macro Recall、混淆矩阵和分难度指标。
+- RAG 回归集包含 60 条公开合成问题：45 条正例覆盖精确问法、改写问法和跨文档证据需求，15 条负例覆盖明显越界与包含“订单、导出、删除”等干扰词的困难负例。接口同时输出按类别和难度的通过率、Hit@K、MRR 与拒答率，避免总体平均值掩盖特定弱点。
+- 两类评测集加载时都校验空集、重复 ID 与规范化后的重复语义输入；难度字段只允许 EASY/MEDIUM/HARD。数据集仍属于公开合成回归集，不宣称是生产盲测集。
 - 评测覆盖率与准确率分开统计：`NOT_EVALUATED` 不进入 Accuracy 分母，但会降低 Coverage 和类别 Recall，避免模型通过漏答困难样例获得虚高分。Mock 模式因此得到 0 Coverage；DeepSeek 调用失败的降级结果也会如实暴露。
 - `ClaimEvidenceEvaluationRunService` 把生产 Critic 输出封装成不可变 Eval Run，记录模型、Prompt、数据集逻辑版本和内容 SHA-256；`FileEvaluationRunRepository` 使用临时文件加原子替换持久化，运行接口使用 POST，历史接口只读。
 - `EvaluationGatePolicy` 同时检查 Coverage、Accuracy、Macro Recall、最低分类 Recall 的绝对阈值，并与最近一次通过门禁的基线比较；任一指标下降超过预算即拒绝发布。Mock 或降级到零评估的运行是 `NOT_EVALUATED`，既不能通过门禁，也不会污染后续基线。
@@ -92,6 +94,9 @@
 - `CodingDeliveryArtifactService` 只接受 `PUBLISHED` 任务。它验证 Checkpoint 中的批准目录必须等于配置根目录下的任务目录，拒绝符号链接和非普通文件，并重新计算每个补丁文件的大小与 SHA-256；任一内容在审批后变化都会拒绝下载。
 - 交付包不是另一份可漂移的业务状态，而是从已发布任务按需派生。ZIP 条目使用固定名称、字典序和时间戳，相同审批快照产生相同字节；`delivery-manifest.json` 保存任务、工作流版本、构建证据摘要、自治预算、激活技能和逐文件哈希，响应头再提供整个 ZIP 的 SHA-256。
 - 交付包同时包含 `changes/approved.patch`、`evidence/build-summary.txt` 与可独立构建的 `project/`。总源内容设有 2MB 硬上限，防止损坏或恶意 Checkpoint 在下载路径造成无界内存占用。
+- `agent-delivery-v2` 除项目文件清单外，还对说明、Diff、构建摘要和工程文件形成全量内容清单。独立验真器以不执行代码的方式逐项复算字节数和 SHA-256，并要求 ZIP 内容集合与 Manifest 完全相等。
+- 上传验真路径设置 3MB 压缩包、4MB 解压总量、2MB 单条目和 64 条目硬预算，拒绝绝对路径、反斜杠、盘符、`..`、未知顶层目录与重复条目，避免 Zip Slip、Zip Bomb 和覆盖歧义。
+- 外部可信 SHA-256 是可选的第二信任来源。未提供时报告只声明“包内一致”，不会把攻击者可同时替换的文件与 Manifest 包装成发布者身份认证；当前仍未实现数字签名。
 - 所有 `CodingTaskService` 状态保存统一经过 `save` 出口：先完成 Checkpoint 持久化，再发布 SSE。因此浏览器看到的状态一定已经可恢复，推送失败只移除对应客户端，不回滚任务，也不阻塞其他订阅者。
 - 自动修复只在 Docker 已正常返回“编译或测试失败”时发生。Docker 不可用、路径异常或策略拒绝属于基础设施/安全失败，不会盲目调用模型重试。
 - 修复 Agent 接收截断后的构建日志和上一版完整文件，但构建日志按不可信数据处理。修复版必须保持路径集合一致，并重新经过 Schema、危险能力、文件数量和字节预算校验。
@@ -114,7 +119,7 @@
 - DeepSeek 在本应用内部仍使用进程内 Spring AI `@Tool`，MCP Server 服务于外部 Agent 客户端；项目没有为了“使用 MCP”而让自己通过网络回调自己。
 - 代码任务默认保存为本机 JSON Checkpoint，可在单实例重启后恢复；当前幂等与取消竞争保护也是单实例同步边界，尚未使用分布式队列、租约、数据库唯一键或幂等外部副作用协议，因此不声称支持多实例竞争恢复。
 - SSE 订阅者保存在单机内存中，适合当前本地工作台；尚未增加网关心跳、跨实例 Pub/Sub、每用户连接上限和身份认证。
-- 批准产物可作为带清单和完整性摘要的 ZIP 下载，但仍是独立演示工程；系统不会直接合并真实 Git 仓库或代表用户创建 Pull Request。
+- 批准产物可作为带全量清单和独立验真报告的 ZIP 下载，但仍是独立演示工程；系统不会直接合并真实 Git 仓库或代表用户创建 Pull Request，也没有组织私钥签名或可信透明日志。
 - Docker 是安全执行的强制前置条件；不可用时任务失败并停止，不会降级为在宿主机执行模型生成代码。
 - 当前仍会在启动时读取并分块外部Markdown，但向量已使用本地磁盘快照和Chunk级增量更新；3311个Chunk热启动全部复用，两次启动实测为14.63至15.36秒，相比原约36秒缩短约58%。
 - 当前快照是单机`SimpleVectorStore` JSON文件，不是Qdrant或PGVector等独立向量数据库；尚未实现多实例索引锁、在线索引切换、加密存储和租户级检索隔离。

@@ -15,12 +15,12 @@ class CodingDeliveryArtifactControllerTest {
     void shouldReturnAttachmentWithArtifactDigest() {
         CodingDeliveryArtifactService service = mock(CodingDeliveryArtifactService.class);
         DeliveryArtifactManifest manifest = new DeliveryArtifactManifest(
-                "agent-delivery-v1", "task-1", "workflow-1", 1,
+                "agent-delivery-v2", "task-1", "workflow-1", 1,
                 "2026-09-12T02:00:00Z", "summary",
                 new DeliveryArtifactManifest.Verification(
                         true, "mvn test", 0, 20, "build-hash"),
                 AutonomyBudget.safeDefault(), 3, 1, 0,
-                List.of(), List.of()
+                List.of(), List.of(), List.of()
         );
         when(service.build("task-1")).thenReturn(new DeliveryArtifactBundle(
                 "coding-delivery-task-1.zip",

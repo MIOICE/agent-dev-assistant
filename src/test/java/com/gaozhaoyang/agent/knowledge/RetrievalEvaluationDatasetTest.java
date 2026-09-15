@@ -26,10 +26,16 @@ class RetrievalEvaluationDatasetTest {
                         )
                 );
 
-        assertThat(dataset.findAll()).hasSize(8);
+        assertThat(dataset.findAll()).hasSize(60);
         assertThat(dataset.findAll())
                 .filteredOn(RetrievalEvaluationCase::isNegativeCase)
-                .hasSize(2);
+                .hasSize(15);
+        assertThat(dataset.findAll())
+                .filteredOn(item -> "CROSS_DOCUMENT".equals(item.category()))
+                .hasSize(15);
+        assertThat(dataset.findAll())
+                .filteredOn(item -> "HARD_NEGATIVE".equals(item.category()))
+                .hasSize(5);
     }
 
     @Test
@@ -60,7 +66,7 @@ class RetrievalEvaluationDatasetTest {
                         repository
                 );
 
-        assertThat(dataset.findAll()).hasSize(9);
+        assertThat(dataset.findAll()).hasSize(61);
         assertThat(dataset.findAll())
                 .extracting(RetrievalEvaluationCase::id)
                 .contains("EVAL-MES-001");
@@ -94,5 +100,21 @@ class RetrievalEvaluationDatasetTest {
         )
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("ID 重复");
+    }
+
+    @Test
+    void shouldRejectDuplicateNormalizedQueries() {
+        RetrievalEvaluationCase first = new RetrievalEvaluationCase(
+                "EVAL-001", "订单导出？", List.of("DOC-EXPORT-001")
+        );
+        RetrievalEvaluationCase second = new RetrievalEvaluationCase(
+                "EVAL-002", " 订单 导出 ", List.of("DOC-EXPORT-001")
+        );
+
+        assertThatThrownBy(() ->
+                new RetrievalEvaluationDataset(List.of(first, second))
+        )
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("问题重复");
     }
 }

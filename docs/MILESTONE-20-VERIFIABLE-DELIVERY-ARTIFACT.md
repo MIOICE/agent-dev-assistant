@@ -22,13 +22,14 @@ coding-delivery-{taskId}.zip
    └─ src/test/...
 ```
 
-`delivery-manifest.json` 使用 `agent-delivery-v1` Schema，记录：
+`delivery-manifest.json` 当前使用 `agent-delivery-v2` Schema，记录：
 
 - `taskId`、`workflowId`、工作流版本和发布时间；
 - 构建命令、退出码、耗时和构建摘要 SHA-256；
 - 自治预算、已执行 Agent 步骤、构建次数和修复轮数；
 - 已激活 Skills；
 - 每个工程文件的路径、操作类型、字节数和 SHA-256。
+- `APPLYING.md`、Diff、构建摘要和工程文件的完整内容清单。
 
 ## 下载前验证
 
@@ -71,7 +72,7 @@ GET /api/coding-tasks/{taskId}/delivery
 
 ## 验证范围
 
-自动化测试覆盖确定性构建、ZIP 条目、清单内容、完整包摘要、审批后 Java 文件与构建描述篡改、部分发布防护、未发布下载拒绝和 HTTP 下载响应头。全项目当前通过 138 个自动化测试。
+自动化测试覆盖确定性构建、ZIP 条目、清单内容、完整包摘要、审批后 Java 文件与构建描述篡改、部分发布防护、未发布下载拒绝和 HTTP 下载响应头。全项目当前通过 142 个自动化测试。
 
 ## 当前边界
 

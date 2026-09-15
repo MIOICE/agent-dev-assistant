@@ -34,14 +34,27 @@ public class ClaimEvidenceEvaluationDataset {
             throw new IllegalArgumentException("Claim-Evidence 评测集不能为空");
         }
         Set<String> ids = new HashSet<>();
+        Set<String> normalizedPairs = new HashSet<>();
         for (ClaimEvidenceEvaluationCase evaluationCase : cases) {
             if (!ids.add(evaluationCase.id())) {
                 throw new IllegalArgumentException(
                         "Claim-Evidence 评测样例 ID 重复：" + evaluationCase.id()
                 );
             }
+            String normalizedPair = normalizeText(evaluationCase.claim())
+                    + "\u001f" + normalizeText(evaluationCase.evidence());
+            if (!normalizedPairs.add(normalizedPair)) {
+                throw new IllegalArgumentException(
+                        "Claim-Evidence 评测内容重复：" + evaluationCase.id()
+                );
+            }
         }
         this.cases = List.copyOf(cases);
+    }
+
+    private String normalizeText(String value) {
+        return value.replaceAll("[\\s，。！？、；：,.!?;:]", "")
+                .toLowerCase();
     }
 
     public List<ClaimEvidenceEvaluationCase> findAll() {
@@ -57,7 +70,8 @@ public class ClaimEvidenceEvaluationDataset {
                         evaluationCase.claim(),
                         evaluationCase.evidence(),
                         evaluationCase.expectedVerdict().name(),
-                        String.join("\u001e", evaluationCase.tags())
+                        String.join("\u001e", evaluationCase.tags()),
+                        evaluationCase.difficulty()
                 );
                 digest.update(canonical.getBytes(StandardCharsets.UTF_8));
                 digest.update((byte) '\n');

@@ -63,6 +63,7 @@ public class ClaimEvidenceEvaluator {
                     evaluationCase.id(),
                     evaluationCase.claim(),
                     evaluationCase.tags(),
+                    evaluationCase.difficulty(),
                     evaluationCase.expectedVerdict(),
                     actual,
                     assessment == null ? 0.0 : assessment.confidence(),
@@ -106,11 +107,31 @@ public class ClaimEvidenceEvaluator {
                 contradictedRecall,
                 insufficientRecall,
                 macroRecall,
+                difficultyBreakdown(results),
                 confusionMatrix(results),
                 results,
                 warnings,
                 Instant.now()
         );
+    }
+
+    private Map<String, ClaimEvidenceEvaluationReport.SegmentMetrics> difficultyBreakdown(
+            List<ClaimEvidenceEvaluationReport.CaseResult> results
+    ) {
+        Map<String, List<ClaimEvidenceEvaluationReport.CaseResult>> groups = new LinkedHashMap<>();
+        for (ClaimEvidenceEvaluationReport.CaseResult result : results) {
+            groups.computeIfAbsent(result.difficulty(), ignored -> new ArrayList<>()).add(result);
+        }
+        Map<String, ClaimEvidenceEvaluationReport.SegmentMetrics> metrics = new LinkedHashMap<>();
+        groups.forEach((difficulty, group) -> {
+            long evaluated = group.stream().filter(ClaimEvidenceEvaluationReport.CaseResult::evaluated).count();
+            long correct = group.stream().filter(ClaimEvidenceEvaluationReport.CaseResult::correct).count();
+            metrics.put(difficulty, new ClaimEvidenceEvaluationReport.SegmentMetrics(
+                    group.size(), (int) evaluated, (int) correct,
+                    ratio(evaluated, group.size()), ratio(correct, evaluated)
+            ));
+        });
+        return Map.copyOf(metrics);
     }
 
     private double recall(

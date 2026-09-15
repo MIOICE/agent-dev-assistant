@@ -10,9 +10,9 @@
 - Agentic RAG：由 DeepSeek 将明确需求拆成 1 至 5 项可验证的证据需求，Harness 在最多 2 轮、6 次查询预算内执行本地 BGE 混合检索；未命中时改写查询，并持久化规划、检索轨迹、证据与缺口。Mock 模式使用可解释规则规划，模型规划失败时也会安全降级。
 - 方案证据绑定：把摘要、后端、数据库、API、安全、性能、测试和回滚结论逐项关联到证据计划实际命中的 Chunk；引用不存在或专项证据缺失时标记为未支撑，待确认内容单独标记为假设，并计算不含假设的证据关联率。
 - Claim–Evidence Critic：DeepSeek 通过一次批量调用判断原子结论与引用证据之间是支持、矛盾还是证据不足；Java 再校验 claim ID、证据 ID 白名单和结果完整性，非法引用自动降级，模型不可用时保留“未评估”状态交由人工复核。
-- 语义审查评测：内置 12 条人工标注的合成 MES 业务样例，均衡覆盖支持、矛盾和证据不足；一次批量运行后计算 Coverage、Accuracy、分类 Recall、Macro Recall 和完整混淆矩阵，Mock 模式覆盖率为 0 而不会伪造模型准确率。
+- 语义审查评测：内置 60 条人工标注的合成 MES 业务样例，支持、矛盾和证据不足各 20 条，并按 EASY/MEDIUM/HARD 分层；一次批量运行后计算 Coverage、Accuracy、分类 Recall、Macro Recall、混淆矩阵和分难度指标，Mock 模式覆盖率为 0 而不会伪造模型准确率。
 - 版本化 EvalOps：每次语义评测记录 AI 模式、模型、Prompt、数据集版本及 SHA-256 指纹，通过原子文件 Checkpoint 保存；发布门禁同时检查绝对阈值和最近通过基线的指标回退，Mock 结果明确标记为未评估。
-- 企业知识检索：可选只读加载外部 MES Markdown，按标题层级分块并附带模块、分类、文档类型和来源路径；本地 BGE 语义召回与关键词召回合并重排，支持来源去重、置信度拒答、引用和离线评测。
+- 企业知识检索：可选只读加载外部 MES Markdown，按标题层级分块并附带模块、分类、文档类型和来源路径；本地 BGE 语义召回与关键词召回合并重排，支持来源去重、置信度拒答、引用和 60 条分层离线评测。当前内置语料实测 Hit@4 95.6%、MRR 94.4%、无关问题拒答率 86.7%，并如实保留 4 个 Bad Case。
 - 增量向量索引：使用Chunk SHA-256指纹识别新增、修改和删除内容，将`SimpleVectorStore`与索引清单原子保存到磁盘；语料和模型版本未变化时直接热加载，仅变化时计算受影响向量。
 - Tool Calling：业务文档检索工具和只读数据库元数据目录工具。
 - 标准 MCP Server：通过 Streamable HTTP 暴露 2 个可发现的只读工具，提供 JSON Schema、只读语义提示、白名单、参数校验和隐私化审计。
@@ -27,11 +27,12 @@
 - 实时任务状态流：使用 Spring MVC `SseEmitter` 将代码任务的完整 Checkpoint 快照主动推送到浏览器；新订阅先读取仓库最新状态，并通过更新时间抑制乱序旧快照，客户端断线后自动重连，SSE 不可用时降级为低频轮询。
 - 后台任务治理：同一工作流的重复提交返回已有任务，避免重复生成；支持持久化取消、任务级运行期限、队列拒绝记录和线程池运行状态查询。取消采用协作式停止，并在统一保存出口阻止过期工作线程覆盖 `CANCELLED/TIMED_OUT` Checkpoint。
 - 可验证交付包：代码审批后按固定顺序派生 ZIP，包含独立工程、统一 Diff、构建摘要和版本化 JSON 清单；下载前重新校验批准目录、普通文件、文件大小与 SHA-256，并在响应头提供整个交付包摘要，未发布任务不能下载。
+- 独立交付验真：上传交付 ZIP 后，在不执行其中代码的前提下校验路径、重复条目、解压规模、Manifest Schema、构建证据和全部内容哈希；可附带外部可信 SHA-256 验证传输结果，并明确区分包内一致性与发布者身份认证。
 - 端到端 Agent Trace：以 `workflowId` 关联需求分析、Agentic RAG、Spring AI/MCP 工具调用、后台 Coding Agent、Agent Loop 与 Docker 构建；统一展示 Span 类型、状态、耗时和调用统计，并对暂不可得的 Token Usage 显式标记而非伪造。
 - Agent Skills：以标准 `SKILL.md` 封装 Java 生成、失败修复、安全复核和导出可靠性方法；先按生成/修复阶段缩小候选集，再用本地 BGE 语义相似度按需加载正文，并记录路由分数与任务级激活轨迹。
 - Skill 供应链防护：启动时校验技能名称、阶段、宿主工具白名单、内容大小和 SHA-256 受信任清单；摘要不一致或越权声明会直接拒绝启动。
 - 安全发布：每轮修复保持文件集合不变，持续执行路径、危险能力和自治预算校验；最终通过统一 Diff、SHA-256 与二次人工审批输出独立产物。
-- 工程验证：JUnit 5、MockMvc、H2 MySQL 兼容测试和 Docker Compose，当前累计通过 138 个自动化测试。
+- 工程验证：JUnit 5、MockMvc、H2 MySQL 兼容测试和 Docker Compose，当前累计通过 144 个自动化测试；代码测试与模型/RAG 效果评测分开统计，避免用代码测试通过率代替 AI 效果。
 
 详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
@@ -247,6 +248,7 @@ Invoke-RestMethod -Uri "http://localhost:8080/api/system/status" -Method Get |
 | POST | `/api/coding-tasks/{taskId}/approval` | 人工批准测试通过的代码产物 |
 | GET | `/api/coding-tasks/{taskId}/delivery/metadata` | 预览交付文件、版本化清单与完整包 SHA-256 |
 | GET | `/api/coding-tasks/{taskId}/delivery` | 下载审批后生成的可验证 ZIP 交付包 |
+| POST | `/api/delivery-artifacts/verify` | 以 multipart 上传交付 ZIP，可选携带可信 SHA-256 并返回独立验真报告 |
 | GET | `/api/system/status` | 查看模型与仓库运行模式 |
 
 ## 开发里程碑
@@ -290,3 +292,7 @@ SSE 实时任务状态流、断线恢复与轮询降级见 [docs/MILESTONE-17-SS
 幂等提交、协作式取消、运行期限与队列可视化见 [docs/MILESTONE-19-TASK-RUNTIME-GOVERNANCE.md](docs/MILESTONE-19-TASK-RUNTIME-GOVERNANCE.md)。
 
 确定性交付包、来源清单与下载前完整性验证见 [docs/MILESTONE-20-VERIFIABLE-DELIVERY-ARTIFACT.md](docs/MILESTONE-20-VERIFIABLE-DELIVERY-ARTIFACT.md)。
+
+ZIP 安全解析、Manifest 全量绑定与独立验真见 [docs/MILESTONE-21-INDEPENDENT-ARTIFACT-VERIFICATION.md](docs/MILESTONE-21-INDEPENDENT-ARTIFACT-VERIFICATION.md)。
+
+60 条分层 RAG 与 Claim–Evidence 评测集见 [docs/MILESTONE-22-EVALUATION-DATASET-EXPANSION.md](docs/MILESTONE-22-EVALUATION-DATASET-EXPANSION.md)。

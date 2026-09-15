@@ -18,16 +18,19 @@ class ClaimEvidenceEvaluationDatasetTest {
                 new ClassPathResource("evaluation/claim-evidence-cases.json")
         );
 
-        assertThat(dataset.findAll()).hasSize(12);
+        assertThat(dataset.findAll()).hasSize(60);
         assertThat(dataset.findAll())
                 .filteredOn(item -> item.expectedVerdict() == ClaimEvidenceVerdict.SUPPORTED)
-                .hasSize(4);
+                .hasSize(20);
         assertThat(dataset.findAll())
                 .filteredOn(item -> item.expectedVerdict() == ClaimEvidenceVerdict.CONTRADICTED)
-                .hasSize(4);
+                .hasSize(20);
         assertThat(dataset.findAll())
                 .filteredOn(item -> item.expectedVerdict() == ClaimEvidenceVerdict.INSUFFICIENT)
-                .hasSize(4);
+                .hasSize(20);
+        assertThat(dataset.findAll())
+                .filteredOn(item -> "HARD".equals(item.difficulty()))
+                .hasSizeGreaterThanOrEqualTo(8);
         assertThat(dataset.fingerprint()).matches("[a-f0-9]{64}");
     }
 
@@ -39,6 +42,24 @@ class ClaimEvidenceEvaluationDatasetTest {
         assertThatThrownBy(() -> new ClaimEvidenceEvaluationDataset(List.of(first, second)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("ID 重复");
+    }
+
+    @Test
+    void shouldRejectDuplicateNormalizedClaimEvidencePairs() {
+        ClaimEvidenceEvaluationCase first = evaluationCase("CASE-001");
+        ClaimEvidenceEvaluationCase second = new ClaimEvidenceEvaluationCase(
+                "CASE-002",
+                " 全量导出 必须校验权限。",
+                "执行全量导出前，必须校验角色权限！",
+                ClaimEvidenceVerdict.SUPPORTED,
+                List.of("权限")
+        );
+
+        assertThatThrownBy(() ->
+                new ClaimEvidenceEvaluationDataset(List.of(first, second))
+        )
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("内容重复");
     }
 
     private ClaimEvidenceEvaluationCase evaluationCase(String id) {

@@ -47,14 +47,26 @@ public class RetrievalEvaluationDataset {
         }
 
         Set<String> ids = new HashSet<>();
+        Set<String> normalizedQueries = new HashSet<>();
         for (RetrievalEvaluationCase evaluationCase : cases) {
             if (!ids.add(evaluationCase.id())) {
                 throw new IllegalArgumentException(
                         "检索评测题 ID 重复：" + evaluationCase.id()
                 );
             }
+            String normalizedQuery = normalizeText(evaluationCase.query());
+            if (!normalizedQueries.add(normalizedQuery)) {
+                throw new IllegalArgumentException(
+                        "检索评测问题重复：" + evaluationCase.query()
+                );
+            }
         }
         this.cases = List.copyOf(cases);
+    }
+
+    private static String normalizeText(String value) {
+        return value.replaceAll("[\\s，。！？、；：,.!?;:]", "")
+                .toLowerCase();
     }
 
     public List<RetrievalEvaluationCase> findAll() {

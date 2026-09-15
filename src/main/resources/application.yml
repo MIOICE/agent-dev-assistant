@@ -1,6 +1,10 @@
 spring:
   application:
     name: agent-dev-assistant
+  servlet:
+    multipart:
+      max-file-size: 3MB
+      max-request-size: 4MB
   ai:
     tools:
       limits:
@@ -40,7 +44,7 @@ app:
   evaluation:
     repository: ${EVALUATION_REPOSITORY:file}
     checkpoint-root: ${EVALUATION_CHECKPOINT_ROOT:F:/agent-workspaces/evaluation-runs}
-    dataset-version: ${CLAIM_EVIDENCE_DATASET_VERSION:claim-evidence-v1}
+    dataset-version: ${CLAIM_EVIDENCE_DATASET_VERSION:claim-evidence-v2-60}
     prompt-version: ${CLAIM_EVIDENCE_PROMPT_VERSION:claim-evidence-critic-v1}
     model-id: ${DEEPSEEK_MODEL:deepseek-v4-flash}
     gate:
@@ -90,7 +94,7 @@ app:
     model-output-name: last_hidden_state
     cache-directory: ${EMBEDDING_CACHE_DIRECTORY:F:/ai-models/spring-ai}
     djl-cache-directory: ${DJL_CACHE_DIRECTORY:F:/ai-models/djl}
-    similarity-threshold: 0.45
+    similarity-threshold: 0.50
     confidence-threshold: 0.65
     top-k: 4
     evaluation-thresholds: 0.40,0.45,0.50,0.55
