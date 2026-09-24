@@ -1,298 +1,121 @@
-# 面向企业存量系统的需求开发 Agent
+# 客户需求与实施方案协作 Agent
 
-一个可运行、可演示的 Java Agent 项目。系统把自然语言需求转换为结构化需求卡片，通过本地 RAG 检索企业规范，生成技术方案，并用人工审批完成安全闭环。
+面向 MES 实施团队的内部 Agent 系统。实施人员把会议纪要、工单或群聊中确认的客户需求录入系统，系统负责结构化需求、提示关键业务缺口、调查对应客户与 MES 版本的授权资料，并生成可交研发评审的技术方案初稿。客户不登录系统；实施人员核对、修订和批准后，系统只生成客户沟通稿。
+
+> 本项目不会连接客户生产库执行写操作，不会自动部署，也不会把模型生成内容称为已经验证的实施方案。
+
+## 当前架构
+
+```text
+实施人员工作台
+      │ OIDC/JWT，tenant_id 来自登录令牌
+      ▼
+Java Case Orchestrator（Spring Boot / Spring AI）
+      │ 需求状态机、澄清、预算、审批、版本化方案
+      │ A2A 1.0 JSON-RPC + 限时服务 JWT + traceparent
+      ▼
+Python MES Knowledge Agent（FastAPI / 官方 A2A SDK）
+      │ 客户 + 系统 + 版本前置过滤
+      │ 语义召回 + 关键词召回 + RRF 融合
+      ▼
+ai-platform 知识空间 / 只读工具
+```
+
+两个协议的职责不同：
+
+- A2A 用于 Java 编排 Agent 向独立运行的 Python 知识 Agent 委派证据调查任务，并通过远端 `taskId` 恢复任务。
+- MCP 用于知识 Agent 或其他授权 Agent 访问只读资料与工具，不用来伪装多 Agent。
 
 ## 已实现能力
 
-- 需求结构化：标题、背景、模块、验收标准、缺失信息、优先级、风险。
-- 多轮澄清：信息不足时暂停，补充后使用同一 `workflowId` 恢复。
-- 自适应业务澄清：确定性问题路由器将线程池、索引、重试等技术问题降级为可复核假设，按删除、权限、范围等业务风险排序，每轮优先展示 2 至 3 个关键决策；每题说明提问原因和影响，支持选项式回答及一键采用推荐值，没有安全默认值时绝不静默跳过。
-- Agentic RAG：由 DeepSeek 将明确需求拆成 1 至 5 项可验证的证据需求，Harness 在最多 2 轮、6 次查询预算内执行本地 BGE 混合检索；未命中时改写查询，并持久化规划、检索轨迹、证据与缺口。Mock 模式使用可解释规则规划，模型规划失败时也会安全降级。
-- 方案证据绑定：把摘要、后端、数据库、API、安全、性能、测试和回滚结论逐项关联到证据计划实际命中的 Chunk；引用不存在或专项证据缺失时标记为未支撑，待确认内容单独标记为假设，并计算不含假设的证据关联率。
-- Claim–Evidence Critic：DeepSeek 通过一次批量调用判断原子结论与引用证据之间是支持、矛盾还是证据不足；Java 再校验 claim ID、证据 ID 白名单和结果完整性，非法引用自动降级，模型不可用时保留“未评估”状态交由人工复核。
-- 语义审查评测：内置 60 条人工标注的合成 MES 业务样例，支持、矛盾和证据不足各 20 条，并按 EASY/MEDIUM/HARD 分层；一次批量运行后计算 Coverage、Accuracy、分类 Recall、Macro Recall、混淆矩阵和分难度指标，Mock 模式覆盖率为 0 而不会伪造模型准确率。
-- 版本化 EvalOps：每次语义评测记录 AI 模式、模型、Prompt、数据集版本及 SHA-256 指纹，通过原子文件 Checkpoint 保存；发布门禁同时检查绝对阈值和最近通过基线的指标回退，Mock 结果明确标记为未评估。
-- 企业知识检索：可选只读加载外部 MES Markdown，按标题层级分块并附带模块、分类、文档类型和来源路径；本地 BGE 语义召回与关键词召回合并重排，支持来源去重、置信度拒答、引用和 60 条分层离线评测。当前内置语料实测 Hit@4 95.6%、MRR 94.4%、无关问题拒答率 86.7%，并如实保留 4 个 Bad Case。
-- 增量向量索引：使用Chunk SHA-256指纹识别新增、修改和删除内容，将`SimpleVectorStore`与索引清单原子保存到磁盘；语料和模型版本未变化时直接热加载，仅变化时计算受影响向量。
-- Tool Calling：业务文档检索工具和只读数据库元数据目录工具。
-- 标准 MCP Server：通过 Streamable HTTP 暴露 2 个可发现的只读工具，提供 JSON Schema、只读语义提示、白名单、参数校验和隐私化审计。
-- 方案生成：后端改动、数据库影响、API、安全、性能、测试、回滚和待确认项。
-- Human-in-the-loop：方案审批、驳回意见回传、重新生成、最终完成。
-- 可靠性：失败状态持久化、日志记录、原工作流重试、参数校验、统一异常响应。
-- 持久化：内存 / MySQL 可切换，工作流列表、阶段筛选、版本号和事件时间线。
-- 可视化操作台：历史工作流、页面恢复、澄清、审批、驳回、重试、知识库评测。
-- Trace 与运行评测：持久化需求分析、RAG、方案生成等节点的状态、耗时和统计属性，展示首轮就绪率、平均澄清轮数、推荐值采纳率及完成率。
-- Durable Coding Agent：API 提交后立即进入有界后台队列；从已审批技术方案生成受限 Java 补丁，在无网络 Docker 沙箱中离线测试，失败时依据构建证据最多自动修复两轮，并通过文件 Checkpoint 支持服务重启恢复。
-- 受控 Agent Loop：将编码过程显式建模为“观察状态→选择行动→执行→验证结果”，逐步记录生成、沙箱测试、证据修复和人工审批轨迹；同时限制最多 8 个 Agent 步骤，并通过补丁与失败证据 SHA-256 指纹识别重复行动，在无进展、执行预算耗尽或需要人工审批时明确停止。
-- 实时任务状态流：使用 Spring MVC `SseEmitter` 将代码任务的完整 Checkpoint 快照主动推送到浏览器；新订阅先读取仓库最新状态，并通过更新时间抑制乱序旧快照，客户端断线后自动重连，SSE 不可用时降级为低频轮询。
-- 后台任务治理：同一工作流的重复提交返回已有任务，避免重复生成；支持持久化取消、任务级运行期限、队列拒绝记录和线程池运行状态查询。取消采用协作式停止，并在统一保存出口阻止过期工作线程覆盖 `CANCELLED/TIMED_OUT` Checkpoint。
-- 可验证交付包：代码审批后按固定顺序派生 ZIP，包含独立工程、统一 Diff、构建摘要和版本化 JSON 清单；下载前重新校验批准目录、普通文件、文件大小与 SHA-256，并在响应头提供整个交付包摘要，未发布任务不能下载。
-- 独立交付验真：上传交付 ZIP 后，在不执行其中代码的前提下校验路径、重复条目、解压规模、Manifest Schema、构建证据和全部内容哈希；可附带外部可信 SHA-256 验证传输结果，并明确区分包内一致性与发布者身份认证。
-- 端到端 Agent Trace：以 `workflowId` 关联需求分析、Agentic RAG、Spring AI/MCP 工具调用、后台 Coding Agent、Agent Loop 与 Docker 构建；统一展示 Span 类型、状态、耗时和调用统计，并对暂不可得的 Token Usage 显式标记而非伪造。
-- Agent Skills：以标准 `SKILL.md` 封装 Java 生成、失败修复、安全复核和导出可靠性方法；先按生成/修复阶段缩小候选集，再用本地 BGE 语义相似度按需加载正文，并记录路由分数与任务级激活轨迹。
-- Skill 供应链防护：启动时校验技能名称、阶段、宿主工具白名单、内容大小和 SHA-256 受信任清单；摘要不一致或越权声明会直接拒绝启动。
-- 安全发布：每轮修复保持文件集合不变，持续执行路径、危险能力和自治预算校验；最终通过统一 Diff、SHA-256 与二次人工审批输出独立产物。
-- 工程验证：JUnit 5、MockMvc、H2 MySQL 兼容测试和 Docker Compose，当前累计通过 144 个自动化测试；代码测试与模型/RAG 效果评测分开统计，避免用代码测试通过率代替 AI 效果。
+- 实施人员内部工作台：录入客户原始需求、记录线下澄清结果、查看证据、修改方案、驳回和批准。
+- Durable Case：Case、系统版本快照、澄清记录、A2A 任务 ID、证据包、方案修订版和审批审计持久化；乐观锁避免重复推进。
+- 真正的 A2A 协作：Java 使用官方 A2A Java SDK，Python 使用官方 A2A Python SDK；支持 Agent Card、任务状态、结构化 Artifact 和远端任务续接。
+- 知识边界：Python 端先按 `tenant_id + system_id + system_version` 找到唯一知识空间，再执行检索；未登记版本返回证据不足。
+- 混合检索：语义候选与关键词候选通过 RRF 融合，限制单文档 Chunk 数量；Java 端对多问题结果去重、检查覆盖度并保留未解决问题。
+- 证据治理：来源、文档、Chunk、版本、语义分和关键词分随方案保存；版本冲突、跨租户结果、提示注入内容会被隔离。
+- Human-in-the-loop：只有实施人员可查看技术方案、逐条修订和批准；证据不足时禁止生成客户沟通稿。
+- 身份隔离：Case 的客户范围来自 JWT，而不是前端请求；同一 Case 使用其他 `tenant_id` 查询时返回不存在。
+- 试点配置：`pilot` Profile 强制 MySQL、OIDC 和真实 A2A，不允许悄悄回退到 H2 或开发令牌。
+- 旧能力隔离：历史 Coding Agent 位于独立 Maven 模块，不被主应用启动；旧 `/api/workflows` 默认只读并仅管理员可查看。
 
-详细设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
-
-## 目录重点
+## Maven 模块
 
 ```text
-src/main/java/com/gaozhaoyang/agent
-├─ requirement/   需求分析、结构化输出与确定性校验
-├─ knowledge/     文档分块、向量检索与评测
-├─ solution/      技术方案生成
-├─ tool/          Spring AI 工具调用
-├─ workflow/      状态机、审批闭环与持久化
-├─ coding/        异步代码任务、Checkpoint、有界修复与沙箱验证
-├─ skill/         Skills 索引、阶段路由、渐进式加载与激活统计
-├─ observability/ Trace 上下文、跨模块 Span 投影与运行摘要
-└─ common/        统一异常与运行状态
+agent-dev-assistant/
+├─ case-orchestrator/       当前主应用：需求 Case、A2A 编排、证据与方案审批
+├─ coding-agent-archive/    历史 Coding Agent 演示模块，不属于主流程
+├─ docs/                    架构、检索优化、运行与里程碑文档
+└─ local-career/            本地简历和面试材料，已被 .gitignore 排除
 ```
 
-## 本地启动（推荐先用 Mock）
+Python 知识 Agent 位于独立项目：`F:/APPS/phpstudy_pro/WWW/ai-platform/services/knowledge_a2a/`。
 
-Mock 模式不消耗大模型额度，但仍会执行完整工作流和本地 BGE 检索。
+## 本地启动
 
-```powershell
-$env:JAVA_HOME = "C:\Program Files\Eclipse Adoptium\jdk-21.0.5.11-hotspot"
-$env:Path = "$env:JAVA_HOME\bin;$env:Path"
+先在 ai-platform 的 IDE 终端启动知识 Agent：
 
-Set-Location "F:\agent-dev-assistant"
-mvn test
-mvn spring-boot:run
+```text
+.venv\Scripts\python.exe -m uvicorn services.knowledge_a2a.app:app --host 127.0.0.1 --port 8020
 ```
 
-打开：`http://localhost:8080/`。根地址会进入新版工作台。
+再在本项目根目录的 IDE 终端启动 Java：
 
-## 使用真实 DeepSeek
-
-只在当前 PowerShell 会话设置密钥，不要写入配置文件：
-
-```powershell
-$env:DEEPSEEK_API_KEY = "替换成你自己的密钥"
-$env:APP_AI_MODE = "deepseek"
-
-Set-Location "F:\agent-dev-assistant"
-mvn spring-boot:run
+```text
+mvn -pl case-orchestrator spring-boot:run
 ```
 
-页面右上角会显示“真实模型”或“Mock 演示”，可以直接确认当前运行方式。
-
-### 不使用 PowerShell：VS Code 一键启动
-
-1. 用 VS Code 打开整个 `F:\agent-dev-assistant` 文件夹。
-2. 如果项目根目录还没有 `.env.local`，复制 `.env.example` 并命名为 `.env.local`，然后打开它。
-3. 将 `DEEPSEEK_API_KEY=` 后面的占位内容替换成自己的密钥并保存。
-4. 打开左侧“运行和调试”，在顶部选择 `Agent - DeepSeek`。
-5. 点击绿色运行按钮或按 `F5`。
-
-`.vscode/launch.json` 已配置好主类、工作目录和环境变量文件；`.env.local` 已写入 `.gitignore`，不会被正常提交到 Git。需要切回演示模式时选择 `Agent - Mock` 即可。
-
-### 接入本地 MES 业务文档
-
-外部知识库默认关闭，原始业务文件不会被复制进项目。要启用时，在 `.env.local` 中增加：
+两端至少配置相同的 `A2A_SIGNING_SECRET`，Java 端另需：
 
 ```dotenv
-MES_KNOWLEDGE_ENABLED=true
-MES_KNOWLEDGE_ROOT=F:/path/to/sanitized-mes-workspace
-MES_KNOWLEDGE_MAX_FILES=400
-MES_KNOWLEDGE_MAX_FILE_BYTES=131072
-KNOWLEDGE_INDEX_ENABLED=true
-KNOWLEDGE_INDEX_ROOT=F:/agent-workspaces/knowledge-index
-KNOWLEDGE_INDEX_MODEL_ID=bge-small-zh-v1.5-v1
+KNOWLEDGE_A2A_ENABLED=true
+KNOWLEDGE_A2A_ENDPOINT=http://127.0.0.1:8020/a2a/jsonrpc
 ```
 
-然后在 VS Code 选择 `Agent - Mock` 或 `Agent - DeepSeek` 并按 `F5`。启动后工作台会常驻展示源文档、Chunk、MES 私有文档和向量索引状态；点击“查看知识库”只渲染前 60 个 Chunk，混合检索仍覆盖全部语料，避免把分页预览数量误认为知识库总量。加载器只允许读取 `summary` 下的业务页面及 `document` 下的需求卡片、需求分析和整体方案；其他文件会被跳过，原目录始终只读。
+浏览器打开 `http://localhost:8080/`。本地演示默认使用 H2、开发 JWT 和 Mock 模型。
 
-`KNOWLEDGE_INDEX_MODEL_ID`代表Embedding模型与预处理规则的版本。更换模型、Tokenizer或向量处理逻辑时必须修改该值，系统会自动判定旧快照不兼容并全量重建。向量快照仍包含经过基础脱敏的文档Chunk，应当与原始业务资料采用相同的私有数据保护策略，不能提交Git。
-
-启动完成后可直接在浏览器打开 `http://localhost:8080/` 操作。也可以用下面四条完整命令验证新接口：
+试点环境使用：
 
 ```text
-curl.exe "http://localhost:8080/api/knowledge/status"
-curl.exe "http://localhost:8080/api/knowledge/index/status"
-curl.exe --get "http://localhost:8080/api/knowledge/search" --data-urlencode "query=生产订单列表有哪些字段、接口和核心数据表"
-curl.exe "http://localhost:8080/api/knowledge/evaluation"
+mvn -pl case-orchestrator spring-boot:run -Dspring-boot.run.profiles=pilot
 ```
 
-## MySQL 持久化启动
+`pilot` Profile 必须提供 MySQL、OIDC 和真实 A2A 配置；完整变量见 [.env.example](.env.example)。
 
-先按 `scripts/create-workflow-database.sql` 创建数据库和应用账号，再执行：
+## 验证
 
-```powershell
-$env:WORKFLOW_REPOSITORY = "mysql"
-$env:WORKFLOW_MYSQL_USERNAME = "agent_app"
-$env:WORKFLOW_MYSQL_PASSWORD = "替换成你的本地数据库密码"
-$env:APP_AI_MODE = "mock"
+Java 全量测试：
 
-Set-Location "F:\agent-dev-assistant"
-mvn spring-boot:run
+```text
+mvn test
 ```
 
-密码只保留在当前终端环境变量中，不要提交到 Git。
+Python 检索与 A2A 测试：
 
-## Docker Compose
-
-复制 `.env.example` 为 `.env`，填写数据库密码和本地 BGE 模型目录，然后运行：
-
-```powershell
-Set-Location "F:\agent-dev-assistant"
-Copy-Item .env.example .env
-docker compose up --build
+```text
+.venv\Scripts\python.exe -m pytest -o addopts="" tests/test_hybrid_retrieval.py tests/test_knowledge_a2a.py -q
 ```
 
-## 完整接口测试命令
-
-### 创建工作流
-
-```powershell
-$body = @{
-    requirement = "紧急：订单列表增加全量导出，仅管理员可操作，导出当前筛选结果CSV，超过一万条使用异步任务"
-} | ConvertTo-Json
-
-$workflow = Invoke-RestMethod `
-    -Uri "http://localhost:8080/api/workflows" `
-    -Method Post `
-    -ContentType "application/json; charset=utf-8" `
-    -Body $body
-
-$workflow | ConvertTo-Json -Depth 12
-$workflowId = $workflow.workflowId
-```
-
-### 查询、补充、审批、驳回与重试
-
-```powershell
-# 查询详情
-Invoke-RestMethod -Uri "http://localhost:8080/api/workflows/$workflowId" -Method Get |
-    ConvertTo-Json -Depth 12
-
-# 信息不足时补充
-$clarificationBody = @{
-    clarification = "导出当前筛选订单，CSV格式，仅管理员可用，超过一万条采用异步任务"
-} | ConvertTo-Json
-Invoke-RestMethod `
-    -Uri "http://localhost:8080/api/workflows/$workflowId/clarifications" `
-    -Method Post -ContentType "application/json; charset=utf-8" `
-    -Body $clarificationBody | ConvertTo-Json -Depth 12
-
-# 驳回并重新生成
-$rejectionBody = @{ feedback = "补充异步任务进度查询和失败重试设计" } | ConvertTo-Json
-Invoke-RestMethod `
-    -Uri "http://localhost:8080/api/workflows/$workflowId/rejection" `
-    -Method Post -ContentType "application/json; charset=utf-8" `
-    -Body $rejectionBody | ConvertTo-Json -Depth 12
-
-# 审批通过
-$approvalBody = @{ comment = "安全、性能和回滚方案已确认" } | ConvertTo-Json
-Invoke-RestMethod `
-    -Uri "http://localhost:8080/api/workflows/$workflowId/approval" `
-    -Method Post -ContentType "application/json; charset=utf-8" `
-    -Body $approvalBody | ConvertTo-Json -Depth 12
-
-# 只有 FAILED 状态可以重试
-Invoke-RestMethod `
-    -Uri "http://localhost:8080/api/workflows/$workflowId/retry" `
-    -Method Post -ContentType "application/json; charset=utf-8" -Body "{}" |
-    ConvertTo-Json -Depth 12
-```
-
-### 工作流列表和系统状态
-
-```powershell
-Invoke-RestMethod -Uri "http://localhost:8080/api/workflows?page=0&size=20" -Method Get |
-    ConvertTo-Json -Depth 8
-
-Invoke-RestMethod -Uri "http://localhost:8080/api/workflows?stage=WAITING_APPROVAL&page=0&size=20" -Method Get |
-    ConvertTo-Json -Depth 8
-
-Invoke-RestMethod -Uri "http://localhost:8080/api/system/status" -Method Get |
-    Format-List
-```
-
-## 关键接口
+## API 主流程
 
 | 方法 | 地址 | 作用 |
 |---|---|---|
-| POST | `/api/workflows` | 创建并推进工作流 |
-| GET | `/api/workflows` | 分页查询工作流，可按阶段筛选 |
-| GET | `/api/workflows/{id}` | 查询完整快照和事件历史 |
-| GET | `/api/workflows/{id}/trace` | 查询单次工作流 Agent Span |
-| GET | `/api/workflows/metrics` | 查询工作流质量与运行指标 |
-| POST | `/api/workflows/{id}/clarifications` | 补充需求并继续 |
-| POST | `/api/workflows/{id}/clarifications/recommendations` | 采用当前阻塞问题的推荐值并继续 |
-| POST | `/api/workflows/{id}/approval` | 审批通过 |
-| POST | `/api/workflows/{id}/rejection` | 驳回并携带意见重生成 |
-| POST | `/api/workflows/{id}/retry` | 重试失败工作流 |
-| GET | `/api/knowledge/search?query=...` | 混合检索并返回向量分、综合分与来源元数据 |
-| GET | `/api/knowledge/status` | 查看内置/外部文档、分块、跳过和脱敏统计 |
-| GET | `/api/knowledge/index/status` | 查看冷启动、热加载、增量更新及Chunk复用统计 |
-| GET | `/api/knowledge/evaluation` | 运行检索评测 |
-| GET | `/api/solution-critique/evaluation` | 读取最近一次 Claim–Evidence 评测结果的兼容端点 |
-| POST | `/api/solution-critique/evaluation/runs` | 运行、判定门禁并持久化版本化评测 |
-| GET | `/api/solution-critique/evaluation/runs` | 查询最近的评测运行历史 |
-| GET | `/api/solution-critique/evaluation/runs/latest` | 查询最近一次评测运行 |
-| POST | `/api/mcp` | MCP Streamable HTTP 协议入口 |
-| GET | `/api/tools/status` | 查看 MCP 暴露边界和工具策略 |
-| GET | `/api/tools/audits` | 查看最近工具调用审计 |
-| GET | `/api/skills` | 查看可发现的 Agent Skills 元数据与激活次数 |
-| POST | `/api/coding-tasks?workflowId=...` | 提交后台代码任务，返回 HTTP 202 与当前快照 |
-| GET | `/api/coding-tasks/{taskId}` | 查询后台阶段、Checkpoint、修复与构建记录 |
-| GET | `/api/coding-tasks/{taskId}/stream` | 通过 SSE 实时订阅最新代码任务完整快照 |
-| GET | `/api/coding-tasks/runtime` | 查询执行线程、排队任务、队列余量和任务运行期限 |
-| GET | `/api/observability/traces/{workflowId}` | 汇总工作流、工具、Coding Loop 与沙箱构建的端到端 Trace |
-| GET | `/api/coding-tasks/workflow/{workflowId}` | 查询工作流对应的代码任务 |
-| POST | `/api/coding-tasks/{taskId}/cancellation` | 幂等取消排队、执行中或等待审批的代码任务 |
-| POST | `/api/coding-tasks/{taskId}/approval` | 人工批准测试通过的代码产物 |
-| GET | `/api/coding-tasks/{taskId}/delivery/metadata` | 预览交付文件、版本化清单与完整包 SHA-256 |
-| GET | `/api/coding-tasks/{taskId}/delivery` | 下载审批后生成的可验证 ZIP 交付包 |
-| POST | `/api/delivery-artifacts/verify` | 以 multipart 上传交付 ZIP，可选携带可信 SHA-256 并返回独立验真报告 |
-| GET | `/api/system/status` | 查看模型与仓库运行模式 |
+| POST | `/api/cases` | 实施人员创建客户需求 Case；支持 `Idempotency-Key` |
+| GET | `/api/cases` | 只查询当前令牌客户范围内的 Case |
+| GET | `/api/cases/{id}` | 查询阶段、澄清问题、证据缺口和进度 |
+| POST | `/api/cases/{id}/clarifications` | 记录实施人员线下确认的客户反馈 |
+| GET | `/api/cases/{id}/technical-proposal` | 查看技术方案、证据包与修订历史 |
+| PUT | `/api/cases/{id}/technical-proposal` | 保存实施人员修订版 |
+| POST | `/api/cases/{id}/reject` | 驳回当前方案 |
+| POST | `/api/cases/{id}/approve` | 批准方案并允许生成客户沟通稿 |
+| POST | `/api/cases/{id}/cancel` | 取消 Case，并尽力取消远端 A2A Task |
+| GET | `/api/cases/{id}/business-proposal` | 读取已批准的客户沟通稿 |
 
-## 开发里程碑
+## 文档
 
-业务友好澄清 Agent 的实现见 [docs/MILESTONE-01-BUSINESS-CLARIFICATION.md](docs/MILESTONE-01-BUSINESS-CLARIFICATION.md)。
+- [当前系统架构](docs/ARCHITECTURE.md)
+- [检索优化设计](docs/RETRIEVAL-OPTIMIZATION.md)
+- [开发与运行手册](docs/RUNBOOK.md)
+- [A2A 实施里程碑](docs/MILESTONE-23-A2A-CASE-ORCHESTRATOR.md)
 
-Agent Trace 与运行评测见 [docs/MILESTONE-02-TRACE-AND-EVALS.md](docs/MILESTONE-02-TRACE-AND-EVALS.md)。
-
-标准 MCP Server 与工具治理见 [docs/MILESTONE-03-MCP-TOOL-GOVERNANCE.md](docs/MILESTONE-03-MCP-TOOL-GOVERNANCE.md)。
-
-安全代码工作区与自治预算见 [docs/MILESTONE-04-SAFE-CODING-SANDBOX.md](docs/MILESTONE-04-SAFE-CODING-SANDBOX.md)。
-
-后台执行、Checkpoint 与有界自动修复见 [docs/MILESTONE-05-DURABLE-REPAIR-LOOP.md](docs/MILESTONE-05-DURABLE-REPAIR-LOOP.md)。
-
-Agent Skills 与渐进式上下文加载见 [docs/MILESTONE-06-AGENT-SKILLS.md](docs/MILESTONE-06-AGENT-SKILLS.md)。
-
-Skills 语义路由与供应链校验见 [docs/MILESTONE-07-SEMANTIC-SKILL-ROUTING.md](docs/MILESTONE-07-SEMANTIC-SKILL-ROUTING.md)。
-
-私有 MES 语料治理与混合 RAG 见 [docs/MILESTONE-08-PRIVATE-MES-RAG.md](docs/MILESTONE-08-PRIVATE-MES-RAG.md)。
-
-持久化快照与增量向量索引见 [docs/MILESTONE-09-INCREMENTAL-VECTOR-INDEX.md](docs/MILESTONE-09-INCREMENTAL-VECTOR-INDEX.md)。
-
-有界 Agentic RAG 证据研究见 [docs/MILESTONE-10-AGENTIC-RAG.md](docs/MILESTONE-10-AGENTIC-RAG.md)。
-
-方案证据绑定与未支撑检测见 [docs/MILESTONE-11-SOLUTION-GROUNDING.md](docs/MILESTONE-11-SOLUTION-GROUNDING.md)。
-
-Claim–Evidence 语义审查与确定性后校验见 [docs/MILESTONE-12-CLAIM-EVIDENCE-CRITIC.md](docs/MILESTONE-12-CLAIM-EVIDENCE-CRITIC.md)。
-
-Claim–Evidence 人工金标评测见 [docs/MILESTONE-13-CLAIM-EVIDENCE-EVALS.md](docs/MILESTONE-13-CLAIM-EVIDENCE-EVALS.md)。
-
-版本化 Evals、通过基线与发布门禁见 [docs/MILESTONE-14-VERSIONED-EVAL-GATE.md](docs/MILESTONE-14-VERSIONED-EVAL-GATE.md)。
-
-自适应业务澄清与问题路由见 [docs/MILESTONE-15-ADAPTIVE-CLARIFICATION.md](docs/MILESTONE-15-ADAPTIVE-CLARIFICATION.md)。
-
-受控 Agent Loop、步骤预算与无进展检测见 [docs/MILESTONE-16-CONTROLLED-AGENT-LOOP.md](docs/MILESTONE-16-CONTROLLED-AGENT-LOOP.md)。
-
-SSE 实时任务状态流、断线恢复与轮询降级见 [docs/MILESTONE-17-SSE-TASK-STREAM.md](docs/MILESTONE-17-SSE-TASK-STREAM.md)。
-
-跨工作流、工具、Coding Agent 与沙箱构建的统一 Trace 见 [docs/MILESTONE-18-END-TO-END-OBSERVABILITY.md](docs/MILESTONE-18-END-TO-END-OBSERVABILITY.md)。
-
-幂等提交、协作式取消、运行期限与队列可视化见 [docs/MILESTONE-19-TASK-RUNTIME-GOVERNANCE.md](docs/MILESTONE-19-TASK-RUNTIME-GOVERNANCE.md)。
-
-确定性交付包、来源清单与下载前完整性验证见 [docs/MILESTONE-20-VERIFIABLE-DELIVERY-ARTIFACT.md](docs/MILESTONE-20-VERIFIABLE-DELIVERY-ARTIFACT.md)。
-
-ZIP 安全解析、Manifest 全量绑定与独立验真见 [docs/MILESTONE-21-INDEPENDENT-ARTIFACT-VERIFICATION.md](docs/MILESTONE-21-INDEPENDENT-ARTIFACT-VERIFICATION.md)。
-
-60 条分层 RAG 与 Claim–Evidence 评测集见 [docs/MILESTONE-22-EVALUATION-DATASET-EXPANSION.md](docs/MILESTONE-22-EVALUATION-DATASET-EXPANSION.md)。
+既有里程碑文档仍保留，用于说明被归档能力的演进历史；若与当前主流程冲突，以本 README 和 `MILESTONE-23` 为准。

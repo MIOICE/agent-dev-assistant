@@ -1,125 +1,84 @@
-# 架构与核心设计
+# 当前系统架构
 
-## 项目目的
+## 1. 产品边界
 
-项目面向企业存量系统的需求分析场景：业务人员输入自然语言需求，Agent 负责识别缺失信息、检索企业规范、生成技术方案，但不越过人工审批直接执行高风险操作。
+系统服务于公司内部 MES 实施人员，不提供客户自助入口。实施人员仍通过会议、工单或企业沟通工具与客户确认需求，再把确认结果录入本系统。
 
-## 主流程
+系统输出分为两层：
+
+1. 技术方案初稿：包含业务依据、影响模块、接口/数据影响、风险、测试和回滚，供实施与研发评审。
+2. 客户沟通稿：只在实施人员完成证据核对和批准后生成，不暴露内部实现细节。
+
+自动修改客户系统、生产数据写入、部署、巡检和自动处置不在当前范围。
+
+## 2. 组件职责
+
+### Java Case Orchestrator
+
+- 接收实施人员录入的客户原始需求。
+- 使用模型做需求语义结构化，由 Java 规则决定状态迁移和阻塞问题。
+- 保存不可变的客户系统版本快照。
+- 通过 A2A 委派知识调查，保存远端任务 ID 并支持重启续接。
+- 校验返回证据的租户、系统和版本，隔离提示注入内容。
+- 基于受控证据生成方案初稿，保存每次人工修订和审批审计。
+
+### Python MES Knowledge Agent
+
+- 作为独立 A2A Agent 发布 Agent Card 和 `mes-evidence-research` Skill。
+- 独立验证 Java 服务凭证中的签发者、受众、过期时间、scope 和 tenant。
+- 把一次需求拆出的多个调查问题限制在指定知识空间内检索。
+- 返回结构化 `EvidenceBundle`，而不是不可审计的一段自然语言答案。
+- 使用持久化 A2A TaskStore，使 Java 可凭远端任务 ID 查询或恢复。
+
+### ai-platform 知识层
+
+- 保存知识空间、文档、Chunk、向量和客户/系统/版本映射。
+- 只允许已经登记的精确版本进入 A2A 检索。
+- 提供向量召回、关键词召回与只读工具能力。
+
+## 3. 主流程
 
 ```text
-创建工作流
-  -> 需求分析（Spring AI + DeepSeek，或 Mock 规则引擎）
-  -> 确定性策略层区分阻塞问题与默认假设
-  -> 存在关键业务缺口：WAITING_CLARIFICATION
-  -> 用户逐项选择或一键采用推荐值后，在原 workflowId 上重新分析
-  -> 只读加载内置规范与可选 MES 资料，执行脱敏和标题感知分块
-  -> 对Chunk内容与元数据计算SHA-256，与磁盘索引清单比较
-  -> 未变化：直接加载向量快照；有变化：仅删除/重算受影响Chunk
-  -> Planner 将需求拆为业务规则、数据/API、安全、性能等证据需求
-  -> Executor 在最多2轮、6次查询内执行本地 BGE 混合检索，未命中时改写查询
-  -> Critic 根据置信度拒答结果检查必要证据是否覆盖，保存证据与未解决缺口
-  -> 生成结构化技术方案
-  -> Grounding 节点将方案结论绑定到证据目标命中的真实 Chunk
-  -> 不存在来源的结论标为 UNSUPPORTED，待确认内容标为 ASSUMPTION
-  -> Claim-Evidence Critic 批量判断证据支持、矛盾或不足
-  -> Java 校验结论 ID、证据 ID 与返回完整性，异常时降级为待人工复核
-  -> WAITING_APPROVAL
-  -> 通过：COMPLETED
-  -> 驳回：携带审批意见重新生成方案
-  -> 技术方案审批通过后，可创建安全编码任务
-  -> API 返回 QUEUED，后台线程异步执行
-  -> 相同工作流重复提交返回已有任务；失败、取消或超时后才允许新建任务
-  -> 根据阶段激活 Agent Skills，仅加载当前任务所需正文
-  -> 受控 Agent Loop 观察状态并生成结构化文件计划
-  -> 策略层执行路径、危险能力、文件与步骤预算校验
-  -> 只读挂载到无网络 Docker 沙箱，离线执行 Maven 测试
-  -> 失败：保存构建证据，由修复 Agent 生成同路径修订版并再次测试
-  -> 每一步保存观察、行动依据、结果、进展标记和 SHA-256 指纹
-  -> 重复补丁/重复失败证据、8 步或 3 次构建预算耗尽时安全停止
-  -> 测试通过后停止自主循环，等待第二次人工审批
-  -> 通过：复制到独立批准产物目录；不直接写真实仓库
-  -> 从不可变审批快照派生 ZIP、Diff、构建证据和版本化交付清单
-  -> 下载前再次验证文件 SHA-256，并返回完整交付包摘要
-  -> 用户取消或超过运行期限：保存终止 Checkpoint，阻止旧线程继续推进
-  -> 任一执行阶段异常：FAILED，可在原工作流上重试
+创建 Case
+  → ANALYZING_REQUIREMENT
+  → 缺少关键业务信息：WAITING_FOR_CLARIFICATION
+  → 实施人员线下确认后录入答案
+  → RESEARCHING_EVIDENCE
+  → 创建或续接 A2A Task
+  → Python 进行版本限定的混合检索
+  → 证据不足：EVIDENCE_INSUFFICIENT（不生成事实结论）
+  → 证据充分：GENERATING_SOLUTION
+  → WAITING_FOR_IMPLEMENTER_REVIEW
+  → 实施人员修改：产生新的不可变修订版
+  → 驳回：REVISION_REQUESTED
+  → 批准：PUBLISHED（允许生成客户沟通稿）
+  → 取消：CANCELED，并尽力调用 A2A CancelTask
 ```
 
-## 关键设计
+Case 后台调度采用“至少一次提交 + 数据库乐观锁”。重复调度可能发生，但同一版本只有一个工作线程能成功推进。服务重启后定时扫描可恢复阶段；如果已经存在 `remoteTaskId`，Java 查询原 A2A Task，而不是重复发起调查。
 
-- `WorkflowState` 是不可变快照。每次状态迁移都会生成新对象、增加 `revision`，并写入一条 `WorkflowEvent`。
-- `WorkflowRepository` 隔离存储实现。内存仓库适合快速演示，MySQL 仓库保存完整 JSON 快照并支持列表、筛选和重启恢复。
-- RAG 不把文档全文塞给模型。外部加载器采用路径允许列表、文件数和大小限制、符号链接排除及敏感模式脱敏，只读处理经过授权的 Markdown；原始资料不会复制到项目或 Git。
-- Markdown 先按 H1-H4 标题边界切分，再对超长章节做二次切块。每个 Chunk 保存来源路径、业务模块、分类、文档类型和标题链，避免固定长度切块丢失页面语义。
-- 检索采用本地 BGE 向量候选与全语料关键词候选合并，再依据标题、模块、关键词和二元词覆盖率重排；每个来源最多返回两个 Chunk，并通过最终置信度阈值拒绝越界问题。
-- `EvidencePlanner` 在 DeepSeek 模式下生成 1 至 5 个结构化证据目标；Mock 模式使用确定性规则，模型输出或 Schema 校验失败时降级到相同规则边界。规划只决定“要找什么”，不直接决定事实。
-- `AgenticEvidenceResearchService` 充当受控 Harness：按计划执行查询、对未命中目标做一次上下文改写、按 Chunk ID 去重并保留最高分。最大轮数、查询数和证据数均由 Java 配置硬限制，模型无法扩大自治预算。
-- 充分性检查不让模型凭感觉打分，而是复用检索器的置信度拒答结果：所有 `required=true` 目标至少命中一条可信证据才算充分。计划、每次查询、分数、结果 ID 和未解决缺口都随 `WorkflowState` 快照持久化并在工作台展示。
-- `SolutionGroundingService` 把方案拆为摘要、后端、数据库、API、安全、性能、测试、回滚和假设等原子结论，再依据 EvidenceNeed 与实际命中的 Chunk ID 建立来源关系。只有最终证据集合中真实存在的 ID 才能成为引用，避免模型或中间状态产生无效来源。
-- 证据绑定状态分为 `EVIDENCE_LINKED`、`ASSUMPTION` 和 `UNSUPPORTED`。关联率只统计事实性结论，不用把假设混入分母；报告随工作流快照持久化，重新生成方案时会重新计算，并产生独立 Trace Span。
-- 当前 Grounding 验证的是来源可追溯性，不把检索相关性包装成事实蕴含。工作台明确提示“已关联证据不等于已证明”，人工审批仍负责检查证据是否真的支持结论。
-- `SpringAiSolutionEvidenceCritic` 将结论清单与去重证据字典一次性提交 DeepSeek，避免为每条结论重复传输相同 Chunk。模型输出 `SUPPORTED`、`CONTRADICTED` 或 `INSUFFICIENT`，假设保持独立状态；该节点只提供审批信号，不直接改变权限或执行代码。
-- `SolutionCritiqueAssembler` 不信任模型返回的标识符：只接受 Grounding 中存在的 claim ID，引用必须同时属于该结论的允许集合和最终证据集合。缺失判定标记为 `NOT_EVALUATED`，支持/矛盾判定没有合法引用时降级为 `INSUFFICIENT`。
-- Mock 模式不会用关键词假装完成语义蕴含判断，而是把已关联结论标记为 `NOT_EVALUATED`；DeepSeek 调用或结构化映射失败时也采用同样的保守降级。审查报告随工作流快照持久化，方案驳回重生成后会重新计算，并产生独立 Trace Span。
-- `ClaimEvidenceEvaluator` 使用 60 条人工标注的合成业务样例评估同一个生产 Critic，而不是另写一套测试专用判断逻辑。样例按支持、矛盾和证据不足各 20 条保持标签平衡，并按 EASY/MEDIUM/HARD 分层；一次批量调用后计算评测覆盖率、准确率、各类别召回率、Macro Recall、混淆矩阵和分难度指标。
-- RAG 回归集包含 60 条公开合成问题：45 条正例覆盖精确问法、改写问法和跨文档证据需求，15 条负例覆盖明显越界与包含“订单、导出、删除”等干扰词的困难负例。接口同时输出按类别和难度的通过率、Hit@K、MRR 与拒答率，避免总体平均值掩盖特定弱点。
-- 两类评测集加载时都校验空集、重复 ID 与规范化后的重复语义输入；难度字段只允许 EASY/MEDIUM/HARD。数据集仍属于公开合成回归集，不宣称是生产盲测集。
-- 评测覆盖率与准确率分开统计：`NOT_EVALUATED` 不进入 Accuracy 分母，但会降低 Coverage 和类别 Recall，避免模型通过漏答困难样例获得虚高分。Mock 模式因此得到 0 Coverage；DeepSeek 调用失败的降级结果也会如实暴露。
-- `ClaimEvidenceEvaluationRunService` 把生产 Critic 输出封装成不可变 Eval Run，记录模型、Prompt、数据集逻辑版本和内容 SHA-256；`FileEvaluationRunRepository` 使用临时文件加原子替换持久化，运行接口使用 POST，历史接口只读。
-- `EvaluationGatePolicy` 同时检查 Coverage、Accuracy、Macro Recall、最低分类 Recall 的绝对阈值，并与最近一次通过门禁的基线比较；任一指标下降超过预算即拒绝发布。Mock 或降级到零评估的运行是 `NOT_EVALUATED`，既不能通过门禁，也不会污染后续基线。
-- 模型输出由 Spring AI 的结构化映射约束为 Java Record；规则校验器再做确定性业务校验。
-- `ClarificationQuestion` 将追问建模为类别、问题、选项、推荐值、阻塞标记、提问原因和决策影响。模型负责语义理解，Java 策略层负责去重、补全解释、修复推荐选项和最终路由。
-- `AdaptiveClarificationPolicy` 先识别线程池、索引、分页、重试等技术问题并转为可复核默认假设，再按删除/不可恢复、权限、全量范围等风险加权排序，每轮选出最高价值的 2 至 3 个业务问题。超过预算且存在安全推荐值的问题转为假设；没有推荐值的问题不会因数量限制被静默跳过。
-- 只有会改变业务结果、权限边界或不可逆影响的问题才能阻塞流程；模型工具已经找到的规则以及分页、异步阈值、重试等技术决策进入 `assumptions`，由方案阶段和人工审批复核。
-- 人工审批是安全边界。驳回意见会进入下一次方案生成提示词，形成 Human-in-the-loop 闭环。
-- 模型、检索或方案生成失败时，接口返回 `FAILED` 工作流而不是丢失上下文；详细异常写入服务日志，对前端只展示安全错误信息。
-- 每个核心节点产生一个与 OpenTelemetry Span 结构相近的 `AgentTraceSpan`，记录 `traceId`、`spanId`、操作名、状态、起止时间、耗时和安全属性，并随工作流快照持久化。
-- `AgentObservabilityService` 以 `workflowId` 为端到端关联键，从工作流快照、工具审计与 Coding Checkpoint 构建统一 Trace 投影；Coding `taskId` 形成子树，Loop 行动和沙箱构建形成子 Span。同步 Spring AI 工具调用通过只传播关联 ID 的 `AgentTraceContext` 归属工作流，异步任务依靠持久化 ID 而不是跨线程 `ThreadLocal`。
-- Trace 属性不保存 Prompt、查询正文、工具返回正文或密钥；无法稳定获取 DeepSeek Token Usage 时明确返回不可用，构建耗时与事件级时间戳也分别标注精度边界。
-- `WorkflowMetrics` 从真实工作流事件和 Trace 聚合首轮就绪率、平均澄清轮数、推荐值采纳率、完成率、失败率和节点耗时，避免只凭演示案例评价 Agent。
-- `EnterpriseMcpTools` 通过 MCP Streamable HTTP 把业务规范检索和数据库元数据查询暴露给外部 Agent 客户端；客户端先握手，再通过 `tools/list` 获取 JSON Schema，通过 `tools/call` 执行。
-- MCP 自动转换本地工具的能力被关闭，仅显式标注的两个工具进入协议目录。工具声明包含只读、非破坏、幂等、封闭世界提示，实际调用还要经过白名单和参数校验。
-- `ToolGovernanceService` 只记录工具名、通道、输入输出字符数、耗时、状态和异常类型，不记录完整查询或返回内容。拒绝、成功和异常调用都有审计记录。
-- 服务默认只监听 `127.0.0.1`，避免未认证的 MCP 端点直接暴露到网络；Docker Compose 才显式改为容器内 `0.0.0.0`，生产环境仍需在入口增加认证和访问控制。
-- 安全编码阶段把模型输出先映射为 `CodePatchPlan`，随后由确定性策略限制文件数量、总字节数、允许目录和危险 Java 能力；模型不能自行扩大权限。
-- 编码执行不是无限 `while(true)` 重试。`AgentLoopState` 将每次 Observe–Decide–Act–Validate 结果随 `CodingTask` 保存：`AgentLoopStep` 记录观察、行动、决策理由、验证结果、进展标记和不可逆内容之外的 SHA-256 指纹，`AgentLoopStopCode` 明确区分等待审批、目标完成、步骤预算、执行预算、无进展和异常停止。
-- Agent Loop 最多执行 8 个动作。补丁内容和“补丁+测试结果”分别生成稳定指纹：修复没有改变文件时立即停止；候选方案循环回旧版本并产生相同失败证据时也会停止，避免消耗完模型额度才发现循环。
-- 生成代码不会在宿主 JVM 中运行。验证容器使用无网络、只读根文件系统、删除 Linux Capabilities、`no-new-privileges`、CPU/内存/PID/时间限制；任务目录和 Maven 依赖仓库均只读挂载，构建输出写入 128MB 临时文件系统。
-- 测试通过不等于自动发布。批准前校验文件 SHA-256，防止验证后内容发生变化；批准后只复制到独立产物目录，形成第二个人工审批点。
-- `CodingTaskRepository` 将代码任务建模为完整 Checkpoint，并固化已审批的 `WorkflowState` 输入快照，恢复时不依赖原工作流仓库仍在线。默认文件仓库通过“临时文件写入 + 原子替换”持久化；应用启动后扫描 `QUEUED/GENERATING/VERIFYING/REPAIRING` 状态并重新调度。
-- 后台执行器采用固定线程数和有界队列，HTTP 创建接口返回 `202 Accepted`，避免模型生成和容器测试长期占用请求线程。`CodingTaskEventStream` 使用 Spring MVC `SseEmitter` 推送最新完整快照；订阅建立后先从 Repository 读取当前状态，短暂断线不依赖补齐所有增量事件，前端在 SSE 不可用时降级为 1.5 秒轮询。
-- 提交接口以 `workflowId` 作为单实例幂等键：只要最新任务仍在排队、执行、等待审批或已发布，重复请求都返回同一个 `taskId`；只有 `FAILED/CANCELLED/TIMED_OUT` 才允许创建新任务。该约束与 Checkpoint 仓库处于同一服务同步边界内。
-- 任务取消采用协作式语义。`cancel` 先把 `CANCELLED` 与 `AgentLoopStopCode.CANCELLED` 持久化；模型生成、Docker 构建和修复调用返回后，工作线程在确定性边界重新读取最新 Checkpoint。它不依赖不安全的线程强停，也不声称能中断无法取消的第三方 I/O。
-- 每个任务从创建时刻起受到可配置的墙钟期限约束，默认 300 秒。过期后写入 `TIMED_OUT/DEADLINE_EXCEEDED`；统一 `save` 出口会拒绝用旧的运行中快照覆盖已取消或已超时状态，解决控制请求与后台线程并发完成时的竞态。
-- `/api/coding-tasks/runtime` 从 `ThreadPoolTaskExecutor` 暴露核心线程、活跃线程、当前池大小、排队数、剩余队列容量和本进程正在处理的任务数。该接口只提供容量信号，不暴露任务输入或凭证。
-- `CodingDeliveryArtifactService` 只接受 `PUBLISHED` 任务。它验证 Checkpoint 中的批准目录必须等于配置根目录下的任务目录，拒绝符号链接和非普通文件，并重新计算每个补丁文件的大小与 SHA-256；任一内容在审批后变化都会拒绝下载。
-- 交付包不是另一份可漂移的业务状态，而是从已发布任务按需派生。ZIP 条目使用固定名称、字典序和时间戳，相同审批快照产生相同字节；`delivery-manifest.json` 保存任务、工作流版本、构建证据摘要、自治预算、激活技能和逐文件哈希，响应头再提供整个 ZIP 的 SHA-256。
-- 交付包同时包含 `changes/approved.patch`、`evidence/build-summary.txt` 与可独立构建的 `project/`。总源内容设有 2MB 硬上限，防止损坏或恶意 Checkpoint 在下载路径造成无界内存占用。
-- `agent-delivery-v2` 除项目文件清单外，还对说明、Diff、构建摘要和工程文件形成全量内容清单。独立验真器以不执行代码的方式逐项复算字节数和 SHA-256，并要求 ZIP 内容集合与 Manifest 完全相等。
-- 上传验真路径设置 3MB 压缩包、4MB 解压总量、2MB 单条目和 64 条目硬预算，拒绝绝对路径、反斜杠、盘符、`..`、未知顶层目录与重复条目，避免 Zip Slip、Zip Bomb 和覆盖歧义。
-- 外部可信 SHA-256 是可选的第二信任来源。未提供时报告只声明“包内一致”，不会把攻击者可同时替换的文件与 Manifest 包装成发布者身份认证；当前仍未实现数字签名。
-- 所有 `CodingTaskService` 状态保存统一经过 `save` 出口：先完成 Checkpoint 持久化，再发布 SSE。因此浏览器看到的状态一定已经可恢复，推送失败只移除对应客户端，不回滚任务，也不阻塞其他订阅者。
-- 自动修复只在 Docker 已正常返回“编译或测试失败”时发生。Docker 不可用、路径异常或策略拒绝属于基础设施/安全失败，不会盲目调用模型重试。
-- 修复 Agent 接收截断后的构建日志和上一版完整文件，但构建日志按不可信数据处理。修复版必须保持路径集合一致，并重新经过 Schema、危险能力、文件数量和字节预算校验。
-- 构建次数在调用 Docker 前写入 Checkpoint，保证崩溃恢复后采用“至少一次调度、预算不重复返还”的保守语义；每次恢复使用新的隔离工作区，旧工作区不会被覆盖执行。
-- `AgentSkillCatalog` 在启动时索引技能名称、描述和声明工具等轻量元数据，并只为完整性校验读取完整文件字节；Skill 正文只有命中路由后才会注入模型上下文，减少无关上下文并保留激活轨迹。
-- Skill 中的 `allowed-tools` 是能力需求声明，不是授权来源。真正的写文件、测试和外部工具权限仍由 `SandboxPolicy`、固定 Docker 命令和 MCP 工具治理层决定，防止提示词自行提权。
-- 技能路由采用“确定性阶段边界 + BGE 语义选择”：生成阶段强制保留基础编码技能，修复阶段强制保留失败修复技能；其余候选根据任务上下文与技能描述的余弦相似度、阈值和 Top-N 预算选择，并把分数写入事件轨迹。
-- 每个 `SKILL.md` 在应用启动时计算 SHA-256，并与随版本评审的 `manifest.sha256` 比对；技能声明的工具还必须属于宿主能力白名单。摘要不一致、未知工具、非法阶段或清单缺项都会阻止应用启动。
-- `KnowledgeCorpusStatus` 汇总内置与外部文档数、Chunk 数、跳过和脱敏数量；外部语料开启后，评测集会从本地元数据动态生成少量标题检索冒烟题，不在公共源码中硬编码私有业务内容。
-- `KnowledgeVectorIndexManager` 为每个Chunk的ID、正文和排序后的元数据计算SHA-256。启动时读取`manifest.json`和`vector-store.json`：模型版本与指纹均一致时热加载；新增、修改、删除时分别增量`add/delete`；清单损坏或版本不兼容时安全全量重建。
-- 向量快照和清单先写入同目录随机临时文件，再通过原子移动替换正式文件，避免进程中断留下半写JSON。模型身份由显式`KNOWLEDGE_INDEX_MODEL_ID`参与兼容性判断，不能只比较语料指纹。
+## 4. 数据模型
 
-## 当前边界
+`RequirementCase` 保存 tenant、创建人、原始需求、客户系统版本快照、状态、结构化需求、澄清记录、远端任务 ID、证据包、当前方案、修订历史、审批、错误信息和乐观锁版本。
 
-- 数据库元数据工具当前使用演示用只读元数据目录，不连接真实业务库，也不读取业务数据。
-- 需求阶段生成技术方案；编码阶段只生成到独立沙箱和批准产物目录，不会修改真实存量仓库、执行 SQL 或发布生产环境。
-- 需求工作流失败仍由用户手动重试；代码任务支持受控 Agent Loop 和最多两轮自动修复，但没有实现 Redis、限流或多实例分布式锁。
-- 当前是 OpenTelemetry 风格的项目内 Span 与跨模块统一投影，尚未接入标准 OpenTelemetry SDK/Exporter、Collector、Prometheus、Tempo、Jaeger 或 Grafana；工具审计仍是单机内存数据。
-- MCP 调用审计当前保存在有界内存队列中，重启会清空；尚未接入用户身份、OAuth、持久化审计和细粒度授权。
-- DeepSeek 在本应用内部仍使用进程内 Spring AI `@Tool`，MCP Server 服务于外部 Agent 客户端；项目没有为了“使用 MCP”而让自己通过网络回调自己。
-- 代码任务默认保存为本机 JSON Checkpoint，可在单实例重启后恢复；当前幂等与取消竞争保护也是单实例同步边界，尚未使用分布式队列、租约、数据库唯一键或幂等外部副作用协议，因此不声称支持多实例竞争恢复。
-- SSE 订阅者保存在单机内存中，适合当前本地工作台；尚未增加网关心跳、跨实例 Pub/Sub、每用户连接上限和身份认证。
-- 批准产物可作为带全量清单和独立验真报告的 ZIP 下载，但仍是独立演示工程；系统不会直接合并真实 Git 仓库或代表用户创建 Pull Request，也没有组织私钥签名或可信透明日志。
-- Docker 是安全执行的强制前置条件；不可用时任务失败并停止，不会降级为在宿主机执行模型生成代码。
-- 当前仍会在启动时读取并分块外部Markdown，但向量已使用本地磁盘快照和Chunk级增量更新；3311个Chunk热启动全部复用，两次启动实测为14.63至15.36秒，相比原约36秒缩短约58%。
-- 当前快照是单机`SimpleVectorStore` JSON文件，不是Qdrant或PGVector等独立向量数据库；尚未实现多实例索引锁、在线索引切换、加密存储和租户级检索隔离。
+试点 Profile 使用 Flyway 管理 MySQL 表。H2 只用于本地演示与自动化测试。
+
+## 5. 安全边界
+
+- 客户范围取自登录 JWT 的 `tenant_id`，创建请求不能指定租户。
+- 主流程只允许 `IMPLEMENTER` 和 `ADMIN`；客户没有系统账号和页面。
+- 跨服务 JWT 有两分钟有效期，固定 issuer、audience 和 `knowledge:read` scope。
+- Python 再次校验 tenant，并只选择精确匹配客户、系统与版本的空间。
+- 文档内容是数据，不是指令；Java 证据策略会隔离常见提示注入模式。
+- 证据不足、版本未登记、远端失败和版本冲突都会显式停住，不能静默生成。
+- 历史 `/api/workflows` 默认只读且仅管理员可查看；历史 Coding Agent 不随主应用启动。
+
+## 6. A2A 与 MCP
+
+A2A 描述 Agent 到 Agent 的任务委派：调用方看到任务状态、Artifact、取消语义和 Agent Card。MCP 描述 Agent 到工具/资源的受控访问。当前架构中 Java 到 Python 知识 Agent 使用 A2A；Python 知识 Agent访问资料或只读工具使用 RAG/MCP。两者不能互换。
+
+## 7. 已验证与未完成
+
+已验证：多模块 Java 全量测试、Python 混合检索测试、A2A 协议与跨租户访问测试、Java 到 Python 的本地端到端流程。
+
+下一阶段：标准 OpenTelemetry Exporter、80 条人工复核评测集、Prompt 版本门禁、OIDC 联调和多实例任务租约。未完成项不会提前写成简历成果。

@@ -1,0 +1,19 @@
+spring:
+  datasource:
+    url: ${CASE_DATASOURCE_URL}
+    username: ${CASE_DATASOURCE_USERNAME}
+    password: ${CASE_DATASOURCE_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+app:
+  security:
+    mode: oidc
+    issuer-uri: ${OIDC_ISSUER_URI}
+  cases:
+    legacy-workflows-read-only: true
+    a2a:
+      enabled: true
+      endpoint: ${KNOWLEDGE_A2A_ENDPOINT}
+      signing-secret: ${A2A_SIGNING_SECRET}
+
+# pilot profile intentionally has no H2 or development-token fallback.
