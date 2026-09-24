@@ -1,5 +1,6 @@
 package com.gaozhaoyang.agent.casework;
 
+import com.gaozhaoyang.agent.casework.skill.CaseSkillCatalog;
 import com.gaozhaoyang.agent.knowledge.KnowledgeSearchResult;
 import com.gaozhaoyang.agent.requirement.RequirementAnalyzer;
 import com.gaozhaoyang.agent.requirement.RequirementCard;
@@ -7,6 +8,7 @@ import com.gaozhaoyang.agent.solution.SolutionGenerator;
 import com.gaozhaoyang.agent.solution.TechnicalSolution;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -21,16 +23,22 @@ public class CaseProcessor {
     private final EvidenceResearchGateway evidenceGateway;
     private final EvidencePolicyService evidencePolicy;
     private final SolutionGenerator solutionGenerator;
+    private final CaseSkillCatalog skillCatalog;
+    private final String solutionPromptVersion;
 
     public CaseProcessor(CaseRepository repository, RequirementAnalyzer analyzer,
                          EvidenceResearchGateway evidenceGateway,
                          EvidencePolicyService evidencePolicy,
-                         SolutionGenerator solutionGenerator) {
+                         SolutionGenerator solutionGenerator,
+                         CaseSkillCatalog skillCatalog,
+                         @Value("${app.cases.prompts.solution-version}") String solutionPromptVersion) {
         this.repository = repository;
         this.analyzer = analyzer;
         this.evidenceGateway = evidenceGateway;
         this.evidencePolicy = evidencePolicy;
         this.solutionGenerator = solutionGenerator;
+        this.skillCatalog = skillCatalog;
+        this.solutionPromptVersion = solutionPromptVersion;
     }
 
     public void process(String caseId) {
@@ -97,7 +105,8 @@ public class CaseProcessor {
                 toKnowledgeResults(item.evidenceBundle()));
         List<SolutionRevision> revisions = new ArrayList<>(item.revisions());
         revisions.add(new SolutionRevision(revisions.size() + 1, solution,
-                "case-orchestrator", "基于受控证据生成方案初稿", Instant.now()));
+                "case-orchestrator", "基于受控证据生成方案初稿", Instant.now(),
+                solutionPromptVersion, skillCatalog.manifestHash()));
         return repository.update(item.progress(CaseStage.WAITING_FOR_IMPLEMENTER_REVIEW,
                 item.requirementCard(), item.remoteTaskId(), item.evidenceBundle(), solution,
                 revisions, null, null, null, Instant.now()));

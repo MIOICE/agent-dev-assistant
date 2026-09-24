@@ -1,9 +1,12 @@
 package com.gaozhaoyang.agent.requirement;
 
+import com.gaozhaoyang.agent.casework.skill.CaseSkillCatalog;
+import com.gaozhaoyang.agent.casework.skill.CaseSkillPhase;
 import com.gaozhaoyang.agent.tool.BusinessDocumentTools;
 import com.gaozhaoyang.agent.tool.DatabaseMetadataTools;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -63,23 +66,33 @@ public class SpringAiRequirementAnalyzer implements RequirementAnalyzer {
     private final RequirementCardValidator validator;
     private final BusinessDocumentTools businessDocumentTools;
     private final DatabaseMetadataTools databaseMetadataTools;
+    private final CaseSkillCatalog skillCatalog;
+    private final String promptVersion;
+
     public SpringAiRequirementAnalyzer(
         ChatClient.Builder chatClientBuilder,
         RequirementCardValidator validator,
         BusinessDocumentTools businessDocumentTools,
-        DatabaseMetadataTools databaseMetadataTools
+        DatabaseMetadataTools databaseMetadataTools,
+        CaseSkillCatalog skillCatalog,
+        @Value("${app.cases.prompts.requirement-version}") String promptVersion
     ) {
-    this.chatClient = chatClientBuilder.build();
-    this.validator = validator;
-    this.businessDocumentTools = businessDocumentTools;
-    this.databaseMetadataTools = databaseMetadataTools;
-}
+        this.chatClient = chatClientBuilder.build();
+        this.validator = validator;
+        this.businessDocumentTools = businessDocumentTools;
+        this.databaseMetadataTools = databaseMetadataTools;
+        this.skillCatalog = skillCatalog;
+        this.promptVersion = promptVersion;
+    }
 
   @Override
 public RequirementCard analyze(String content) {
     try {
         RequirementCard modelResult = chatClient.prompt()
-                .system(SYSTEM_PROMPT)
+                .system(SYSTEM_PROMPT
+                        + "\n\nPrompt版本：" + promptVersion
+                        + "\n\n【本阶段经审核的 Skill】\n"
+                        + skillCatalog.instructions(CaseSkillPhase.CLARIFICATION))
                 .user(user -> user.text("""
                         请分析下面的业务需求，并输出JSON格式的需求卡片：
 

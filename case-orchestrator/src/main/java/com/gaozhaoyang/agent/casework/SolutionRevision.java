@@ -9,6 +9,13 @@ public record SolutionRevision(
         TechnicalSolution solution,
         String changedBy,
         String changeReason,
-        Instant createdAt
+        Instant createdAt,
+        String promptVersion,
+        String skillManifestHash
 ) {
+    public SolutionRevision(int revision, TechnicalSolution solution, String changedBy,
+                            String changeReason, Instant createdAt) {
+        this(revision, solution, changedBy, changeReason, createdAt,
+                "manual-review", "not-applicable");
+    }
 }

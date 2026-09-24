@@ -54,6 +54,12 @@ app:
   cases:
     executor-threads: ${CASE_EXECUTOR_THREADS:2}
     legacy-workflows-read-only: ${LEGACY_WORKFLOWS_READ_ONLY:true}
+    prompts:
+      requirement-version: ${CASE_REQUIREMENT_PROMPT_VERSION:case-requirement-v1}
+      solution-version: ${CASE_SOLUTION_PROMPT_VERSION:case-solution-v1}
+    skills:
+      location-pattern: classpath*:case-skills/*/SKILL.md
+      manifest-location: classpath:case-skills/manifest.sha256
     a2a:
       enabled: ${KNOWLEDGE_A2A_ENABLED:false}
       endpoint: ${KNOWLEDGE_A2A_ENDPOINT:http://127.0.0.1:8091/a2a/jsonrpc}

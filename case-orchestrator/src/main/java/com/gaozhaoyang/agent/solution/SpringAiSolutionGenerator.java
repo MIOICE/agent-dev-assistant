@@ -1,9 +1,12 @@
 package com.gaozhaoyang.agent.solution;
 
+import com.gaozhaoyang.agent.casework.skill.CaseSkillCatalog;
+import com.gaozhaoyang.agent.casework.skill.CaseSkillPhase;
 import com.gaozhaoyang.agent.knowledge.KnowledgeSearchResult;
 import com.gaozhaoyang.agent.requirement.RequirementCard;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -41,9 +44,17 @@ public class SpringAiSolutionGenerator implements SolutionGenerator {
             """;
 
     private final ChatClient chatClient;
+    private final CaseSkillCatalog skillCatalog;
+    private final String promptVersion;
 
-    public SpringAiSolutionGenerator(ChatClient.Builder chatClientBuilder) {
+    public SpringAiSolutionGenerator(
+            ChatClient.Builder chatClientBuilder,
+            CaseSkillCatalog skillCatalog,
+            @Value("${app.cases.prompts.solution-version}") String promptVersion
+    ) {
         this.chatClient = chatClientBuilder.build();
+        this.skillCatalog = skillCatalog;
+        this.promptVersion = promptVersion;
     }
 
     @Override
@@ -70,7 +81,10 @@ public class SpringAiSolutionGenerator implements SolutionGenerator {
     ) {
         try {
             return chatClient.prompt()
-                    .system(SYSTEM_PROMPT)
+                    .system(SYSTEM_PROMPT
+                            + "\n\nPrompt版本：" + promptVersion
+                            + "\n\n【本阶段经审核的 Skill】\n"
+                            + skillCatalog.instructions(CaseSkillPhase.SOLUTION_REVIEW))
                     .user(user -> user.text("""
                             请根据下面的信息生成技术方案。
 
