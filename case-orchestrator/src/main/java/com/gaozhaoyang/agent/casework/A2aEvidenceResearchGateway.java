@@ -28,6 +28,9 @@ import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.stereotype.Component;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
+import com.gaozhaoyang.agent.observability.W3cTraceContext;
 
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
@@ -51,13 +54,17 @@ public class A2aEvidenceResearchGateway implements EvidenceResearchGateway {
     private final String audience;
     private final JwtEncoder serviceTokenEncoder;
     private final ObjectMapper objectMapper;
+    private final Tracer tracer;
+    private final W3cTraceContext traceContext;
 
     public A2aEvidenceResearchGateway(
             @Value("${app.cases.a2a.endpoint}") String endpoint,
             @Value("${app.cases.a2a.issuer}") String issuer,
             @Value("${app.cases.a2a.audience}") String audience,
             @Value("${app.cases.a2a.signing-secret}") String signingSecret,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            Tracer tracer,
+            W3cTraceContext traceContext
     ) {
         if (signingSecret.getBytes(StandardCharsets.UTF_8).length < 32) {
             throw new IllegalStateException("A2A_SIGNING_SECRET 至少需要 32 字节");
@@ -66,12 +73,36 @@ public class A2aEvidenceResearchGateway implements EvidenceResearchGateway {
         this.issuer = issuer;
         this.audience = audience;
         this.objectMapper = objectMapper;
+        this.tracer = tracer;
+        this.traceContext = traceContext;
         var key = new SecretKeySpec(signingSecret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
         this.serviceTokenEncoder = new NimbusJwtEncoder(new ImmutableSecret<>(key));
     }
 
     @Override
     public ResearchResult research(
+            String tenantId,
+            CustomerSystemSnapshot system,
+            String requirement,
+            com.gaozhaoyang.agent.requirement.RequirementCard card,
+            String existingRemoteTaskId
+    ) {
+        Span span = tracer.nextSpan().name("a2a.knowledge.research")
+                .tag("rpc.system", "a2a")
+                .tag("rpc.operation", existingRemoteTaskId == null || existingRemoteTaskId.isBlank()
+                        ? "message.send" : "tasks.get")
+                .start();
+        try (Tracer.SpanInScope ignored = tracer.withSpan(span)) {
+            return researchWithinSpan(tenantId, system, requirement, card, existingRemoteTaskId);
+        } catch (RuntimeException exception) {
+            span.error(exception);
+            throw exception;
+        } finally {
+            span.end();
+        }
+    }
+
+    private ResearchResult researchWithinSpan(
             String tenantId,
             CustomerSystemSnapshot system,
             String requirement,
@@ -116,12 +147,21 @@ public class A2aEvidenceResearchGateway implements EvidenceResearchGateway {
         if (remoteTaskId == null || remoteTaskId.isBlank()) {
             return;
         }
-        JSONRPCTransport transport = createTransport();
-        try {
-            transport.cancelTask(new CancelTaskParams(remoteTaskId, tenantId, Map.of()),
-                    callContext(tenantId));
+        Span span = tracer.nextSpan().name("a2a.knowledge.cancel")
+                .tag("rpc.system", "a2a").tag("rpc.operation", "tasks.cancel").start();
+        try (Tracer.SpanInScope ignored = tracer.withSpan(span)) {
+            JSONRPCTransport transport = createTransport();
+            try {
+                transport.cancelTask(new CancelTaskParams(remoteTaskId, tenantId, Map.of()),
+                        callContext(tenantId));
+            } finally {
+                transport.close();
+            }
+        } catch (RuntimeException exception) {
+            span.error(exception);
+            throw exception;
         } finally {
-            transport.close();
+            span.end();
         }
     }
 
@@ -155,11 +195,11 @@ public class A2aEvidenceResearchGateway implements EvidenceResearchGateway {
     }
 
     private ClientCallContext callContext(String tenantId) {
-        return new ClientCallContext(Map.of("tenant_id", tenantId), Map.of(
-                "Authorization", "Bearer " + serviceToken(tenantId),
-                "A2A-Version", "1.0",
-                "traceparent", traceparent()
-        ));
+        Map<String, String> headers = new LinkedHashMap<>();
+        headers.put("Authorization", "Bearer " + serviceToken(tenantId));
+        headers.put("A2A-Version", "1.0");
+        traceContext.traceparent().ifPresent(value -> headers.put("traceparent", value));
+        return new ClientCallContext(Map.of("tenant_id", tenantId), Map.copyOf(headers));
     }
 
     private String serviceToken(String tenantId) {
@@ -194,12 +234,6 @@ public class A2aEvidenceResearchGateway implements EvidenceResearchGateway {
         } catch (com.fasterxml.jackson.core.JsonProcessingException exception) {
             throw new IllegalStateException("无法序列化 A2A 证据调查请求", exception);
         }
-    }
-
-    private static String traceparent() {
-        String traceId = UUID.randomUUID().toString().replace("-", "");
-        String spanId = UUID.randomUUID().toString().replace("-", "").substring(0, 16);
-        return "00-" + traceId + "-" + spanId + "-01";
     }
 
     private static A2AHttpClient forceHttp1(JdkA2AHttpClient delegate) {

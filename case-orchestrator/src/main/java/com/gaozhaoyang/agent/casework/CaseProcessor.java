@@ -2,6 +2,7 @@ package com.gaozhaoyang.agent.casework;
 
 import com.gaozhaoyang.agent.casework.skill.CaseSkillCatalog;
 import com.gaozhaoyang.agent.knowledge.KnowledgeSearchResult;
+import com.gaozhaoyang.agent.observability.CaseTelemetry;
 import com.gaozhaoyang.agent.requirement.RequirementAnalyzer;
 import com.gaozhaoyang.agent.requirement.RequirementCard;
 import com.gaozhaoyang.agent.solution.SolutionGenerator;
@@ -24,6 +25,7 @@ public class CaseProcessor {
     private final EvidencePolicyService evidencePolicy;
     private final SolutionGenerator solutionGenerator;
     private final CaseSkillCatalog skillCatalog;
+    private final CaseTelemetry telemetry;
     private final String solutionPromptVersion;
 
     public CaseProcessor(CaseRepository repository, RequirementAnalyzer analyzer,
@@ -31,6 +33,7 @@ public class CaseProcessor {
                          EvidencePolicyService evidencePolicy,
                          SolutionGenerator solutionGenerator,
                          CaseSkillCatalog skillCatalog,
+                         CaseTelemetry telemetry,
                          @Value("${app.cases.prompts.solution-version}") String solutionPromptVersion) {
         this.repository = repository;
         this.analyzer = analyzer;
@@ -38,21 +41,35 @@ public class CaseProcessor {
         this.evidencePolicy = evidencePolicy;
         this.solutionGenerator = solutionGenerator;
         this.skillCatalog = skillCatalog;
+        this.telemetry = telemetry;
         this.solutionPromptVersion = solutionPromptVersion;
     }
 
     public void process(String caseId) {
+        telemetry.observe("case.process", "PROCESSING", caseId, () -> {
+            processWithinTrace(caseId);
+            return null;
+        });
+    }
+
+    private void processWithinTrace(String caseId) {
         try {
             RequirementCase item = repository.findById(caseId)
                     .orElseThrow(() -> new CaseNotFoundException(caseId));
             if (item.stage() == CaseStage.ANALYZING_REQUIREMENT) {
-                item = analyze(item);
+                RequirementCase current = item;
+                item = telemetry.observe("case.requirement.analyze", current.stage().name(),
+                        current.caseId(), () -> analyze(current));
             }
             if (item.stage() == CaseStage.RESEARCHING_EVIDENCE) {
-                item = research(item);
+                RequirementCase current = item;
+                item = telemetry.observe("case.evidence.research", current.stage().name(),
+                        current.caseId(), () -> research(current));
             }
             if (item.stage() == CaseStage.GENERATING_SOLUTION) {
-                generate(item);
+                RequirementCase current = item;
+                telemetry.observe("case.solution.generate", current.stage().name(),
+                        current.caseId(), () -> generate(current));
             }
         } catch (OptimisticLockingFailureException ignored) {
             // A duplicate resume tick lost the optimistic-lock race; the winner continues.

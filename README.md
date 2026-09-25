@@ -36,6 +36,7 @@ ai-platform 知识空间 / 只读工具
 - 证据治理：来源、文档、Chunk、版本、语义分和关键词分随方案保存；版本冲突、跨租户结果、提示注入内容会被隔离。
 - Human-in-the-loop：只有实施人员可查看技术方案、逐条修订和批准；证据不足时禁止生成客户沟通稿。
 - 受审核 Skills：需求澄清和方案证据检查按阶段加载，启动时校验 SHA-256 清单；自动方案修订保存 Prompt 版本和 Skill 清单哈希。
+- 跨服务观测：Java Case 阶段、A2A client/server 与 Python 混合检索通过 W3C Trace Context 连接为同一条 OpenTelemetry Trace；遥测不采集需求和文档正文。
 - 身份隔离：Case 的客户范围来自 JWT，而不是前端请求；同一 Case 使用其他 `tenant_id` 查询时返回不存在。
 - 试点配置：`pilot` Profile 强制 MySQL、OIDC 和真实 A2A，不允许悄悄回退到 H2 或开发令牌。
 - 旧能力隔离：历史 Coding Agent 位于独立 Maven 模块，不被主应用启动；旧 `/api/workflows` 默认只读并仅管理员可查看。
@@ -119,5 +120,7 @@ Python 检索与 A2A 测试：
 - [开发与运行手册](docs/RUNBOOK.md)
 - [A2A 实施里程碑](docs/MILESTONE-23-A2A-CASE-ORCHESTRATOR.md)
 - [阶段化 Case Skills 与生成溯源](docs/MILESTONE-24-GOVERNED-CASE-SKILLS.md)
+- [跨 Java/Python 链路观测](docs/OBSERVABILITY.md)
+- [A2A 跨语言链路追踪里程碑](docs/MILESTONE-25-CROSS-SERVICE-TRACING.md)
 
 既有里程碑文档仍保留，用于说明被归档能力的演进历史；若与当前主流程冲突，以本 README 和 `MILESTONE-23` 为准。

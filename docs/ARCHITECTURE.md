@@ -80,6 +80,8 @@ A2A 描述 Agent 到 Agent 的任务委派：调用方看到任务状态、Artif
 
 ## 7. 已验证与未完成
 
+跨服务可观测性使用 Micrometer Observation、OpenTelemetry 与 W3C Trace Context，将 Java Case 阶段、A2A client/server 和 Python 混合检索关联为同一条 Trace。字段边界、启动和排障方式见 [OBSERVABILITY.md](OBSERVABILITY.md)。
+
 已验证：多模块 Java 全量测试、Python 混合检索测试、A2A 协议与跨租户访问测试、Java 到 Python 的本地端到端流程。
 
 下一阶段：标准 OpenTelemetry Exporter、80 条人工复核评测集、Prompt 版本门禁、OIDC 联调和多实例任务租约。未完成项不会提前写成简历成果。

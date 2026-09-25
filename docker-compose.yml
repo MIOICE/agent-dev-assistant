@@ -25,6 +25,9 @@ services:
       SERVER_ADDRESS: 0.0.0.0
       APP_AI_MODE: ${APP_AI_MODE:-mock}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      CASE_DATASOURCE_URL: jdbc:mysql://mysql:3306/agent_dev_assistant?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+      CASE_DATASOURCE_USERNAME: agent_app
+      CASE_DATASOURCE_PASSWORD: ${WORKFLOW_MYSQL_PASSWORD:-change_me_app}
       WORKFLOW_REPOSITORY: mysql
       WORKFLOW_MYSQL_URL: jdbc:mysql://mysql:3306/agent_dev_assistant?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
       WORKFLOW_MYSQL_USERNAME: agent_app
@@ -40,6 +43,8 @@ services:
       APP_EMBEDDING_MODEL_URI: file:/models/bge-small-zh-v1.5/model_optimized.onnx
       EMBEDDING_CACHE_DIRECTORY: /cache/spring-ai
       DJL_CACHE_DIRECTORY: /cache/djl
+      OTEL_EXPORT_ENABLED: ${OTEL_EXPORT_ENABLED:-false}
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
     ports:
       - "8080:8080"
     volumes:
@@ -47,6 +52,15 @@ services:
       - agent_model_cache:/cache
       - agent_coding_data:/data/coding
       - agent_knowledge_index:/data/knowledge-index
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.161.0
+    profiles: ["observability"]
+    command: ["--config=/etc/otelcol-contrib/config.yml"]
+    volumes:
+      - ./config/otel-collector.yml:/etc/otelcol-contrib/config.yml:ro
+    ports:
+      - "4318:4318"
 
 volumes:
   agent_mysql_data:
